@@ -1,0 +1,45 @@
+{
+  "name": "grimoire",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A local-first macOS writing studio with Palace memory and optional AI assistance.",
+  "author": "Witch Daddy Labs",
+  "license": "MIT",
+  "homepage": "https://github.com/witchdaddylabs/grimoire",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/witchdaddylabs/grimoire.git"
+  },
+  "bugs": {
+    "url": "https://github.com/witchdaddylabs/grimoire/issues"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420",
+    "build": "tsc && vite build",
+    "check": "tsc --noEmit",
+    "check:rust": "cd src-tauri && cargo check",
+    "test": "npm run test:rust",
+    "test:rust": "cd src-tauri && cargo test",
+    "verify": "npm run build && npm run test:rust && npm run check:rust",
+    "package:mac": "tauri build --bundles dmg",
+    "preview": "vite preview --host 127.0.0.1 --port 1420",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.10.1",
+    "lucide-react": "^1.11.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.4",
+    "@tauri-apps/cli": "^2.10.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "tailwindcss": "^4.2.4",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10"
+  }
+}

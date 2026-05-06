@@ -1,0 +1,945 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Grimoire UI Prototype: Witch Daddy Labs</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            obsidian: {
+              950: "#050506",
+              900: "#09090b",
+              850: "#0d0d0f",
+              800: "#111113",
+              750: "#161618",
+              700: "#1a1715"
+            },
+            parchment: {
+              100: "#e7d8c5",
+              200: "#d8c4ad",
+              300: "#b9a895",
+              400: "#7c6f64",
+              500: "#5f554d"
+            },
+            sepia: {
+              300: "#f0b27f",
+              400: "#d97757",
+              500: "#b8664f"
+            },
+            ward: {
+              emerald: "#10b981"
+            }
+          },
+          fontFamily: {
+            manuscript: ["Georgia", "Cambria", "Times New Roman", "serif"],
+            mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "monospace"]
+          },
+          boxShadow: {
+            sepia: "0 0 0 1px rgba(217,119,87,.28), 0 0 34px rgba(217,119,87,.10)",
+            emerald: "0 0 0 1px rgba(16,185,129,.32), 0 0 28px rgba(16,185,129,.14)",
+            deep: "0 24px 80px rgba(0,0,0,.44), inset 0 1px 0 rgba(255,255,255,.035)"
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #09090b;
+      --panel: #111113;
+      --panel-soft: #161618;
+      --text: #e7d8c5;
+      --muted: #b9a895;
+      --faint: #7c6f64;
+      --sepia: #d97757;
+      --emerald: #10b981;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      min-height: 100%;
+      background:
+        radial-gradient(circle at 50% -10%, rgba(217,119,87,.12), transparent 34%),
+        radial-gradient(circle at 84% 16%, rgba(16,185,129,.08), transparent 26%),
+        linear-gradient(180deg, #050506, #09090b 36%, #050506);
+      color: var(--text);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .18;
+      background-image:
+        linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px);
+      background-size: 100% 4px;
+      mix-blend-mode: overlay;
+    }
+
+    .brass-border { border: 1px solid rgba(217,119,87,.16); }
+    .brass-border-strong { border: 1px solid rgba(217,119,87,.34); }
+    .emerald-border { border: 1px solid rgba(16,185,129,.34); }
+    .panel-glow {
+      box-shadow: 0 28px 80px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.035);
+    }
+
+    .scrollbar-dark::-webkit-scrollbar { width: 10px; height: 10px; }
+    .scrollbar-dark::-webkit-scrollbar-track { background: rgba(255,255,255,.025); }
+    .scrollbar-dark::-webkit-scrollbar-thumb {
+      background: rgba(217,119,87,.22);
+      border-radius: 999px;
+      border: 2px solid rgba(9,9,11,.8);
+    }
+
+	    .focus-ring:focus-visible {
+	      outline: 2px solid rgba(217,119,87,.78);
+	      outline-offset: 3px;
+	    }
+
+	    .sr-only {
+	      position: absolute;
+	      width: 1px;
+	      height: 1px;
+	      padding: 0;
+	      margin: -1px;
+	      overflow: hidden;
+	      clip: rect(0, 0, 0, 0);
+	      white-space: nowrap;
+	      border: 0;
+	    }
+
+	    button,
+	    input,
+	    textarea {
+	      min-height: 44px;
+	    }
+
+	    button {
+	      touch-action: manipulation;
+	    }
+
+	    .icon-button {
+	      min-width: 44px;
+	      min-height: 44px;
+	      display: inline-flex;
+	      align-items: center;
+	      justify-content: center;
+	    }
+
+	    [contenteditable="true"] {
+	      caret-color: var(--sepia);
+	    }
+
+    .typing-dot {
+      animation: pulseDot 1.05s infinite ease-in-out;
+    }
+    .typing-dot:nth-child(2) { animation-delay: .14s; }
+    .typing-dot:nth-child(3) { animation-delay: .28s; }
+
+    @keyframes pulseDot {
+      0%, 80%, 100% { opacity: .25; transform: translateY(0); }
+      40% { opacity: 1; transform: translateY(-2px); }
+    }
+
+    .pulse-emerald {
+      animation: emeraldPulse 1.8s infinite ease-in-out;
+    }
+
+    @keyframes emeraldPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,.24); }
+      50% { box-shadow: 0 0 0 8px rgba(16,185,129,0); }
+    }
+
+    .hidden-screen { display: none !important; }
+
+    .fade-in {
+      animation: fadeIn .28s ease-out both;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .focus-mode #palacePanel,
+    .focus-mode #cowriterPanel,
+    .focus-mode #topAside {
+      display: none !important;
+    }
+
+    .focus-mode #appGrid {
+      grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    .focus-mode #canvasPanel {
+      max-width: 980px;
+      margin-inline: auto;
+      border-color: rgba(217,119,87,.20);
+    }
+
+    .focus-mode #canvasBody {
+      max-width: 820px;
+      margin-inline: auto;
+      padding-top: 4.75rem;
+      padding-bottom: 6rem;
+    }
+
+    .focus-mode #focusExit {
+      display: inline-flex !important;
+    }
+
+	    .prototype-note {
+	      background: linear-gradient(180deg, rgba(16,185,129,.10), rgba(217,119,87,.08));
+	      border: 1px solid rgba(217,119,87,.24);
+	    }
+
+	    @media (prefers-reduced-motion: reduce) {
+	      *,
+	      *::before,
+	      *::after {
+	        animation-duration: 0.01ms !important;
+	        animation-iteration-count: 1 !important;
+	        scroll-behavior: auto !important;
+	        transition-duration: 0.01ms !important;
+	      }
+	    }
+	  </style>
+	</head>
+	<body class="font-mono antialiased selection:bg-sepia-400/30 selection:text-parchment-100">
+	  <div id="prototypeNotice" class="fixed bottom-4 left-4 z-50 max-w-md rounded-2xl prototype-note px-4 py-3 text-xs text-parchment-200 shadow-deep" role="note" aria-label="Prototype notice">
+	    <div class="flex items-start gap-3">
+	      <span class="mt-1 h-2 w-2 shrink-0 rounded-full bg-ward-emerald shadow-emerald"></span>
+	      <div>
+	        <p class="font-semibold tracking-[.16em] uppercase text-sepia-300">Prototype reference only</p>
+	        <p class="mt-1 leading-relaxed text-parchment-300">Static HTML for Codex direction. Not production code, not architecture, not persistence.</p>
+	      </div>
+	      <button type="button" class="icon-button ml-2 rounded text-parchment-400 hover:text-parchment-100 focus-ring" onclick="document.getElementById('prototypeNotice').remove()" aria-label="Dismiss prototype notice">×</button>
+	    </div>
+	  </div>
+
+  <!-- Splash -->
+  <section id="splashScreen" class="min-h-screen flex items-center justify-center px-6 py-12">
+    <div class="relative w-full max-w-6xl">
+      <div class="absolute -inset-16 rounded-[4rem] bg-[radial-gradient(circle_at_50%_50%,rgba(217,119,87,.16),transparent_58%)] blur-2xl"></div>
+      <div class="relative overflow-hidden rounded-[2.25rem] brass-border bg-obsidian-950/78 panel-glow">
+        <div class="grid min-h-[680px] grid-cols-1 lg:grid-cols-[1.05fr_.95fr]">
+          <div class="relative flex items-center justify-center border-b border-sepia-400/10 bg-[radial-gradient(circle_at_50%_30%,rgba(16,185,129,.12),transparent_44%)] p-8 lg:border-b-0 lg:border-r">
+            <div class="absolute inset-x-8 top-8 flex justify-between text-[10px] uppercase tracking-[.22em] text-parchment-400">
+              <span>Medieval tech</span>
+              <span>Local-first</span>
+            </div>
+
+            <div class="relative h-[410px] w-[520px] max-w-full rounded-[2rem] border border-sepia-400/20 bg-gradient-to-b from-[#1d1714] to-[#070708] shadow-deep">
+              <div class="absolute -left-10 bottom-10 h-24 w-32 rounded-full bg-black/50 blur-xl"></div>
+              <div class="absolute inset-8 rounded-[1.6rem] border border-sepia-400/24 bg-[#0b0b0d] shadow-sepia">
+                <div class="absolute inset-x-8 top-8 flex items-center justify-between text-[10px] uppercase tracking-[.2em] text-sepia-300">
+                  <span>Grimoire pad</span>
+                  <span class="text-ward-emerald">awake</span>
+                </div>
+                <div class="absolute left-9 right-9 top-20 h-px bg-sepia-400/20"></div>
+                <div class="absolute inset-x-10 top-28 space-y-5 font-manuscript text-[28px] leading-relaxed text-parchment-100">
+                  <p class="text-sepia-300">The Palace remembers.</p>
+                  <p class="text-parchment-200">The Canvas waits.</p>
+                  <p class="text-ward-emerald drop-shadow-[0_0_18px_rgba(16,185,129,.55)]">The words stay local.</p>
+                </div>
+	                <div class="absolute bottom-9 left-10 right-10 grid grid-cols-4 gap-3 text-center text-xs uppercase tracking-[.18em] text-sepia-300" aria-hidden="true">
+	                  <div class="rounded-xl border border-sepia-400/16 bg-obsidian-900/80 py-3">Palace</div>
+	                  <div class="rounded-xl border border-sepia-400/16 bg-obsidian-900/80 py-3">Canvas</div>
+	                  <div class="rounded-xl border border-sepia-400/16 bg-obsidian-900/80 py-3">Wards</div>
+	                  <div class="rounded-xl border border-sepia-400/16 bg-obsidian-900/80 py-3">Memory</div>
+	                </div>
+              </div>
+              <div class="absolute -bottom-8 left-1/2 h-10 w-[80%] -translate-x-1/2 rounded-full bg-black/50 blur-xl"></div>
+            </div>
+          </div>
+
+          <div class="flex flex-col justify-center p-8 sm:p-12 lg:p-16">
+            <p class="text-xs uppercase tracking-[.28em] text-sepia-300">Witch Daddy Labs</p>
+            <h1 class="mt-5 font-manuscript text-5xl leading-none tracking-[-.055em] text-parchment-100 sm:text-7xl">
+              Welcome to Grimoire
+            </h1>
+            <p class="mt-6 max-w-xl text-base leading-8 text-parchment-300">
+              A local-first writing studio with memory. Feed the Palace, write in the Canvas, and let the Co-Writer consult your canon before it speaks.
+            </p>
+
+            <div class="mt-10 grid gap-3 text-sm text-parchment-300">
+              <div class="flex items-center gap-3 rounded-2xl brass-border bg-obsidian-800/54 px-4 py-3">
+                <span class="h-2.5 w-2.5 rounded-full bg-ward-emerald pulse-emerald"></span>
+                Your words stay local. Only you hold the key.
+              </div>
+              <div class="flex items-center gap-3 rounded-2xl brass-border bg-obsidian-800/54 px-4 py-3">
+                <span class="h-2.5 w-2.5 rounded-full bg-sepia-400"></span>
+                No account. No manuscript tracking. No cloud lock-in.
+              </div>
+            </div>
+
+            <div class="mt-10 flex flex-wrap gap-3">
+	              <button type="button" onclick="showOnboarding()" class="focus-ring rounded-2xl bg-gradient-to-b from-sepia-300 to-sepia-500 px-6 py-3 text-sm font-bold text-[#1a100b] shadow-sepia hover:brightness-110">
+	                Begin
+	              </button>
+	              <button type="button" onclick="showApp()" class="focus-ring rounded-2xl brass-border bg-obsidian-800/70 px-6 py-3 text-sm font-semibold text-parchment-200 hover:border-sepia-400/40">
+	                Skip to app prototype
+	              </button>
+	            </div>
+
+	            <p class="mt-8 text-xs uppercase tracking-[.2em] text-parchment-500">by Witch Daddy Labs</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Onboarding -->
+  <section id="onboardingScreen" class="hidden-screen min-h-screen px-5 py-8">
+    <div class="mx-auto max-w-7xl">
+      <div class="mb-5 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p class="text-xs uppercase tracking-[.24em] text-sepia-300">Grimoire setup</p>
+          <h2 class="mt-2 font-manuscript text-3xl tracking-[-.04em] text-parchment-100">Prepare the Palace</h2>
+        </div>
+	        <button type="button" onclick="showApp()" class="focus-ring rounded-xl brass-border bg-obsidian-800/60 px-4 py-2 text-xs font-semibold uppercase tracking-[.14em] text-parchment-300 hover:border-sepia-400/40">
+          Enter app
+        </button>
+      </div>
+
+      <div class="rounded-[2rem] brass-border bg-obsidian-950/74 panel-glow">
+        <div class="border-b border-sepia-400/12 px-6 py-5">
+          <div id="stepper" class="grid gap-3 sm:grid-cols-6"></div>
+        </div>
+
+        <div class="grid min-h-[660px] grid-cols-1 lg:grid-cols-[1fr_360px]">
+          <main class="p-6 sm:p-10 lg:p-12">
+	            <div id="onboardingContent" class="fade-in" aria-live="polite"></div>
+          </main>
+
+          <aside class="border-t border-sepia-400/12 bg-obsidian-900/48 p-6 lg:border-l lg:border-t-0">
+            <div class="rounded-2xl emerald-border bg-emerald-500/5 p-4">
+              <div class="flex items-center gap-3">
+                <span class="h-2.5 w-2.5 rounded-full bg-ward-emerald pulse-emerald"></span>
+                <p class="text-xs uppercase tracking-[.2em] text-ward-emerald">Local-first</p>
+              </div>
+              <p class="mt-3 text-sm leading-6 text-parchment-300">
+                Your words stay on this machine unless you explicitly choose a cloud model later.
+              </p>
+            </div>
+
+            <div class="mt-5 rounded-2xl brass-border bg-obsidian-800/60 p-4">
+              <p class="text-xs uppercase tracking-[.2em] text-sepia-300">Setup state</p>
+              <div class="mt-4 space-y-3 text-sm text-parchment-300">
+                <div class="flex justify-between gap-4"><span>Palace</span><span id="railPalace" class="text-sepia-300">pending</span></div>
+                <div class="flex justify-between gap-4"><span>Memory</span><span id="railMemory" class="text-parchment-400">blank</span></div>
+                <div class="flex justify-between gap-4"><span>Engine</span><span id="railEngine" class="text-parchment-400">asleep</span></div>
+                <div class="flex justify-between gap-4"><span>Wards</span><span id="railWards" class="text-parchment-400">unset</span></div>
+              </div>
+            </div>
+
+            <div class="mt-5 rounded-2xl brass-border bg-obsidian-800/60 p-4">
+              <p class="text-xs uppercase tracking-[.2em] text-sepia-300">Codex note</p>
+              <p class="mt-3 text-sm leading-6 text-parchment-300">
+                This prototype demonstrates layout, motion rhythm, copy, and state changes. The real app should use Tauri, SQLite, and the technical docs.
+              </p>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- App -->
+  <section id="appScreen" class="hidden-screen h-screen overflow-hidden p-3 sm:p-4">
+    <div id="appShell" class="flex h-full flex-col overflow-hidden rounded-[1.75rem] brass-border bg-obsidian-950/78 panel-glow">
+      <header class="flex h-16 shrink-0 items-center justify-between border-b border-sepia-400/12 px-4 sm:px-6">
+        <div class="flex items-center gap-4">
+	          <button type="button" onclick="showSplash()" class="focus-ring rounded-xl border border-sepia-400/18 bg-obsidian-800/60 px-3 py-2 text-xs uppercase tracking-[.16em] text-sepia-300 hover:border-sepia-400/42" aria-label="Return to splash screen">
+            Grimoire
+          </button>
+          <div class="hidden sm:block">
+            <p class="text-xs uppercase tracking-[.2em] text-parchment-500">The Bell Beneath the River</p>
+            <p class="mt-1 text-sm text-parchment-300">Saved locally · Palace memory ready</p>
+          </div>
+        </div>
+
+        <div id="topAside" class="hidden items-center gap-3 md:flex">
+          <span class="rounded-full emerald-border bg-emerald-500/5 px-3 py-1.5 text-xs text-ward-emerald">
+            Ollama · llama3.1:8b
+          </span>
+          <span class="rounded-full brass-border bg-obsidian-800/70 px-3 py-1.5 text-xs text-parchment-300">
+            12,842 words
+          </span>
+        </div>
+
+        <div class="flex items-center gap-2">
+	          <button id="focusExit" type="button" onclick="toggleFocus(false)" class="focus-ring hidden rounded-xl brass-border bg-obsidian-800/70 px-3 py-2 text-xs font-semibold text-parchment-200 hover:border-sepia-400/40">
+            Exit focus
+          </button>
+	          <button id="focusToggle" type="button" onclick="toggleFocus()" class="focus-ring rounded-xl bg-gradient-to-b from-sepia-300 to-sepia-500 px-3 py-2 text-xs font-bold text-[#1a100b] shadow-sepia hover:brightness-110" aria-pressed="false">
+            Focus Mode
+          </button>
+        </div>
+      </header>
+
+      <div id="appGrid" class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[330px_minmax(0,1fr)_390px]">
+        <!-- Palace -->
+        <aside id="palacePanel" class="hidden min-h-0 border-r border-sepia-400/12 bg-obsidian-900/52 lg:flex lg:flex-col">
+          <div class="border-b border-sepia-400/12 p-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-xs uppercase tracking-[.22em] text-sepia-300">The Palace</p>
+                <p class="mt-1 text-sm text-parchment-400">Wings · Halls · Rooms · Drawers</p>
+              </div>
+	              <button type="button" class="icon-button focus-ring rounded-lg brass-border px-2.5 py-1.5 text-xs text-sepia-300" aria-label="Add Palace item">+</button>
+            </div>
+            <label class="mt-4 block text-[11px] uppercase tracking-[.18em] text-parchment-500" for="palaceSearch">Search memory</label>
+            <input id="palaceSearch" class="focus-ring mt-2 w-full rounded-xl brass-border bg-obsidian-950/70 px-3 py-2 text-sm text-parchment-200 placeholder:text-parchment-500" placeholder="character, city, chapter..." />
+          </div>
+
+	          <nav class="scrollbar-dark min-h-0 flex-1 overflow-auto p-3 text-sm" aria-label="Palace memory">
+	            <div class="space-y-1">
+	              <button type="button" class="tree-row w-full rounded-xl px-3 py-2 text-left text-parchment-300 hover:bg-sepia-400/8" onclick="selectPalaceItem('chapter')" data-palace-item="chapter" aria-current="false">▾ ◆ The Novel</button>
+	              <div class="ml-3 border-l border-sepia-400/12 pl-3">
+	                <button type="button" class="w-full rounded-xl px-3 py-2 text-left text-parchment-300 hover:bg-sepia-400/8" aria-expanded="true">▾ ◇ Characters</button>
+	                <div class="ml-3 border-l border-sepia-400/12 pl-3">
+	                  <button type="button" class="w-full rounded-xl px-3 py-2 text-left text-parchment-400 hover:bg-sepia-400/8" aria-expanded="true">▾ Room · Protagonists</button>
+	                  <div class="ml-3 border-l border-sepia-400/12 pl-3">
+	                    <button type="button" onclick="selectPalaceItem('mara')" class="w-full rounded-xl px-3 py-2 text-left text-parchment-300 hover:bg-sepia-400/8" aria-expanded="false">▸ Drawer · Main Cast</button>
+	                    <button type="button" onclick="selectPalaceItem('mara')" class="mt-1 w-full rounded-xl brass-border-strong bg-sepia-400/10 px-3 py-2 text-left shadow-sepia" data-palace-item="mara" aria-current="page">
+                      <span class="block text-parchment-100">Mara Thorne</span>
+                      <span class="mt-1 block text-[10px] uppercase tracking-[.16em] text-sepia-300">character · memory enabled</span>
+                    </button>
+	                    <button type="button" onclick="selectPalaceItem('elian')" class="mt-1 w-full rounded-xl px-3 py-2 text-left text-parchment-300 hover:bg-sepia-400/8" data-palace-item="elian" aria-current="false">
+                      Elian Voss
+                      <span class="block text-[10px] uppercase tracking-[.16em] text-parchment-500">character</span>
+                    </button>
+                  </div>
+                </div>
+
+	                <button type="button" class="mt-2 w-full rounded-xl px-3 py-2 text-left text-parchment-300 hover:bg-sepia-400/8" aria-expanded="true">▾ ◇ World</button>
+	                <div class="ml-3 border-l border-sepia-400/12 pl-3">
+	                  <button type="button" onclick="selectPalaceItem('vel')" class="w-full rounded-xl px-3 py-2 text-left text-parchment-300 hover:bg-sepia-400/8" data-palace-item="vel" aria-current="false">
+                    Vel Ashen
+                    <span class="block text-[10px] uppercase tracking-[.16em] text-parchment-500">location</span>
+                  </button>
+                </div>
+
+	                <button type="button" class="mt-2 w-full rounded-xl px-3 py-2 text-left text-parchment-300 hover:bg-sepia-400/8" aria-expanded="true">▾ ◇ Drafts</button>
+	                <div class="ml-3 border-l border-sepia-400/12 pl-3">
+	                  <button type="button" onclick="selectPalaceItem('chapter')" class="w-full rounded-xl px-3 py-2 text-left text-parchment-300 hover:bg-sepia-400/8" data-palace-item="chapter" aria-current="false">
+	                    Chapter 01: The Bell Beneath the River
+                    <span class="block text-[10px] uppercase tracking-[.16em] text-parchment-500">chapter</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </nav>
+
+          <div class="border-t border-sepia-400/12 p-4">
+            <div class="rounded-2xl emerald-border bg-emerald-500/5 p-3 text-xs text-parchment-300">
+              <span class="text-ward-emerald">●</span> Palace memory ready · 42 chunks
+            </div>
+          </div>
+        </aside>
+
+        <!-- Canvas -->
+        <main id="canvasPanel" class="min-h-0 overflow-hidden bg-[radial-gradient(circle_at_50%_0%,rgba(217,119,87,.045),transparent_32%)]">
+          <div class="scrollbar-dark h-full overflow-auto">
+            <article id="canvasBody" class="mx-auto max-w-3xl px-6 py-10 sm:px-10 lg:px-12">
+              <div class="mb-8 flex flex-wrap items-center justify-between gap-3 border-b border-sepia-400/12 pb-5">
+                <div>
+                  <p id="canvasPath" class="text-xs uppercase tracking-[.18em] text-sepia-300">The Novel / Characters / Protagonists / Main Cast</p>
+	                  <h1 id="canvasTitle" contenteditable="true" role="textbox" aria-label="Item title" spellcheck="true" class="focus-ring mt-3 rounded-lg font-manuscript text-4xl leading-tight tracking-[-.045em] text-parchment-100 outline-none sm:text-5xl">
+                    Mara Thorne
+                  </h1>
+                </div>
+                <div class="text-right text-xs text-parchment-500">
+	                  <p id="saveState" class="text-ward-emerald" role="status" aria-live="polite">Saved locally</p>
+                  <p class="mt-1">1,284 words</p>
+                </div>
+              </div>
+
+	              <div id="editorContent" contenteditable="true" role="textbox" aria-label="Canvas editor" aria-multiline="true" spellcheck="true" oninput="markSaving()" class="focus-ring min-h-[620px] rounded-2xl border border-transparent px-1 py-2 font-manuscript text-[20px] leading-[1.85] tracking-[-.01em] text-parchment-100 outline-none">
+                <p>Mara Thorne speaks like someone who learned early that every word can be used against her. She is restrained by instinct, not shyness. When she is angry, her sentences become shorter. When she is afraid, she becomes polite.</p>
+                <p>She remembers Vel Ashen by smell before sight: river silt, smoke, old stone, and the metallic wetness that gathers under the bridges before dawn. She does not romanticise the city. She survived it.</p>
+                <p>Her rule is simple: never explain pain to someone who benefits from misunderstanding it.</p>
+              </div>
+            </article>
+          </div>
+        </main>
+
+        <!-- Co-Writer -->
+        <aside id="cowriterPanel" class="hidden min-h-0 border-l border-sepia-400/12 bg-obsidian-900/54 lg:flex lg:flex-col">
+          <div class="border-b border-sepia-400/12 p-4">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-[.22em] text-sepia-300">The Co-Writer</p>
+                <p class="mt-1 text-sm text-parchment-400">Ollama · llama3.1:8b</p>
+              </div>
+              <span class="rounded-full emerald-border bg-emerald-500/5 px-3 py-1 text-xs text-ward-emerald">awake</span>
+            </div>
+          </div>
+
+	          <div id="chatThread" class="scrollbar-dark min-h-0 flex-1 space-y-4 overflow-auto p-4" role="log" aria-live="polite" aria-relevant="additions text">
+            <div class="rounded-2xl brass-border bg-obsidian-800/64 p-4">
+              <p class="text-xs uppercase tracking-[.18em] text-parchment-500">User</p>
+              <p class="mt-2 text-sm leading-6 text-parchment-200">What does Vel Ashen smell like at dawn, and keep Mara’s tone restrained?</p>
+            </div>
+
+	            <div id="retrievalState" class="hidden rounded-2xl emerald-border bg-emerald-500/5 p-4" role="status" aria-live="polite">
+              <p class="text-xs uppercase tracking-[.18em] text-ward-emerald">Retrieval</p>
+              <div class="mt-3 space-y-2 text-sm text-parchment-300">
+                <p id="step1"><span class="text-ward-emerald">●</span> Consulting the Palace</p>
+                <p id="step2" class="opacity-40"><span>●</span> Reading canon traces</p>
+                <p id="step3" class="opacity-40"><span>●</span> Checking slop wards</p>
+                <p id="step4" class="opacity-40"><span>●</span> Composing grounded answer</p>
+              </div>
+            </div>
+
+	            <div id="answerCard" class="hidden rounded-2xl brass-border-strong bg-obsidian-800/72 p-4 shadow-sepia" role="region" aria-label="Co-Writer answer" aria-live="polite">
+              <div class="flex items-center justify-between gap-4">
+                <p class="text-xs uppercase tracking-[.18em] text-sepia-300">Co-Writer</p>
+                <span class="rounded-full emerald-border bg-emerald-500/5 px-2 py-1 text-[10px] uppercase tracking-[.12em] text-ward-emerald">Canon confidence: high</span>
+              </div>
+              <p class="mt-3 text-sm leading-7 text-parchment-200">
+                At dawn, Vel Ashen should smell damp and mineral rather than romantic: river silt, old stone, smoke caught under the bridges, and a faint metallic wetness. Mara would describe it without ornament. She would remember it as a place that taught her caution, not wonder.
+              </p>
+
+              <div class="mt-4 rounded-xl border border-red-400/25 bg-red-500/8 p-3 text-xs text-red-200">
+                <p class="font-semibold uppercase tracking-[.16em]">2 cursed phrases found</p>
+	                <p class="mt-2">Flagged: <span class="text-red-100">damp</span>, <span class="text-red-100">wonder</span>. Demo warning only.</p>
+              </div>
+
+              <div class="mt-4 space-y-2">
+                <p class="text-xs uppercase tracking-[.18em] text-parchment-500">Sources</p>
+                <div class="rounded-xl brass-border bg-obsidian-950/52 p-3">
+                  <div class="flex justify-between gap-3">
+                    <p class="text-sm text-parchment-100">Vel Ashen</p>
+                    <span class="text-[10px] uppercase tracking-[.14em] text-sepia-300">location</span>
+                  </div>
+                  <p class="mt-1 text-xs leading-5 text-parchment-400">The Novel / World / Cities / Northern Cities</p>
+                  <p class="mt-2 text-xs leading-5 text-parchment-300">“river silt, smoke, old stone...”</p>
+                </div>
+                <div class="rounded-xl brass-border bg-obsidian-950/52 p-3">
+                  <div class="flex justify-between gap-3">
+                    <p class="text-sm text-parchment-100">Mara Thorne</p>
+                    <span class="text-[10px] uppercase tracking-[.14em] text-sepia-300">character</span>
+                  </div>
+                  <p class="mt-1 text-xs leading-5 text-parchment-400">The Novel / Characters / Protagonists / Main Cast</p>
+                  <p class="mt-2 text-xs leading-5 text-parchment-300">“When she is afraid, she becomes polite.”</p>
+                </div>
+              </div>
+
+              <div class="mt-4 grid grid-cols-2 gap-2">
+	                <button type="button" onclick="insertCowriterText()" class="focus-ring rounded-xl bg-gradient-to-b from-sepia-300 to-sepia-500 px-3 py-2 text-xs font-bold text-[#1a100b]">Insert</button>
+	                <button type="button" class="focus-ring rounded-xl brass-border bg-obsidian-950/60 px-3 py-2 text-xs text-parchment-200">Rewrite clean</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="border-t border-sepia-400/12 p-4">
+            <label for="cowriterPrompt" class="text-[11px] uppercase tracking-[.18em] text-parchment-500">Ask the Co-Writer</label>
+            <textarea id="cowriterPrompt" rows="3" class="focus-ring mt-2 w-full resize-none rounded-2xl brass-border bg-obsidian-950/70 p-3 text-sm leading-6 text-parchment-200 placeholder:text-parchment-500" placeholder="Ask about canon, tone, place, character...">What does Vel Ashen smell like at dawn?</textarea>
+	            <button type="button" onclick="runRetrieval()" class="focus-ring mt-3 w-full rounded-2xl bg-gradient-to-b from-sepia-300 to-sepia-500 px-4 py-3 text-sm font-bold text-[#1a100b] shadow-sepia hover:brightness-110">
+              Consult the Palace
+            </button>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const steps = [
+      {
+        id: "welcome",
+        title: "Welcome",
+        heading: "Welcome to Grimoire",
+        body: "A local-first writing studio with memory. Grimoire helps you write, store lore, and work with a Co-Writer that consults your Palace before it speaks.",
+        cta: "Create your Palace",
+        secondary: "Open existing Palace",
+        render: "welcome"
+      },
+      {
+        id: "palace",
+        title: "Palace",
+        heading: "Create your Palace",
+        body: "A Palace is your local writing vault. It stores chapters, lore, characters, notes, guardrails, and memory.",
+        cta: "Create new Palace",
+        secondary: "Try demo Palace",
+        render: "palace"
+      },
+      {
+        id: "feed",
+        title: "Feed",
+        heading: "Feed the Palace",
+        body: "To get the most magic out of Grimoire, feed the Palace with your own work. Start with at least 10,000 words. Two or three separate pieces is better.",
+        cta: "Import writing",
+        secondary: "Start blank",
+        render: "feed"
+      },
+      {
+        id: "engine",
+        title: "Engine",
+        heading: "Choose your writing engine",
+        body: "Grimoire works best with a local model. Local engines keep your writing on this machine.",
+        cta: "Connect to Ollama",
+        secondary: "Skip for now",
+        render: "engine"
+      },
+      {
+        id: "wards",
+        title: "Wards",
+        heading: "Set the wards",
+        body: "Wards help Grimoire keep your prose clean, grounded, and true to your voice. Start with default slop wards, then add your own cursed phrases.",
+        cta: "Set wards",
+        secondary: "Skip wards",
+        render: "wards"
+      },
+      {
+        id: "canvas",
+        title: "Canvas",
+        heading: "Enter the Canvas",
+        body: "Your Palace is ready. Write in the Canvas, organise memory in the Palace, and let the Co-Writer consult your canon before it answers.",
+        cta: "Enter the Canvas",
+        secondary: "Review setup",
+        render: "canvas"
+      }
+    ];
+
+    let currentStep = 0;
+    let setup = {
+      palace: false,
+      memory: false,
+      engine: false,
+      wards: false
+    };
+
+    const content = {
+      mara: {
+        title: "Mara Thorne",
+        path: "The Novel / Characters / Protagonists / Main Cast",
+        body: `<p>Mara Thorne speaks like someone who learned early that every word can be used against her. She is restrained by instinct, not shyness. When she is angry, her sentences become shorter. When she is afraid, she becomes polite.</p><p>She remembers Vel Ashen by smell before sight: river silt, smoke, old stone, and the metallic wetness that gathers under the bridges before dawn. She does not romanticise the city. She survived it.</p><p>Her rule is simple: never explain pain to someone who benefits from misunderstanding it.</p>`
+      },
+      elian: {
+        title: "Elian Voss",
+        path: "The Novel / Characters / Protagonists / Main Cast",
+        body: `<p>Elian Voss has a habit of making hope sound like logistics. He does not promise rescue. He lists the tools available, the distance to the river, and the number of guards between here and daylight.</p><p>He trusts maps more than people, but he keeps revising both.</p>`
+      },
+      vel: {
+        title: "Vel Ashen",
+        path: "The Novel / World / Cities / Northern Cities",
+        body: `<p>Vel Ashen sits where the river narrows and the old bridges lean into one another like tired witnesses. At dawn, the city smells of river silt, smoke, old stone, and wet iron.</p><p>The locals say the bells beneath the water ring only for people who owe the city a debt.</p>`
+      },
+      chapter: {
+	        title: "Chapter 01: The Bell Beneath the River",
+        path: "The Novel / Drafts / Act One / Opening Sequence",
+        body: `<p>The first bell rang before sunrise, too deep to belong to any tower.</p><p>Mara woke with her hand already around the knife beneath her pillow. Outside, Vel Ashen was still half dark, its bridges caught in fog and furnace smoke.</p><p>She counted three breaths before the second bell came. That was how she knew the city had remembered her.</p>`
+      }
+    };
+
+    function showSplash() {
+      document.body.classList.remove("focus-mode");
+      screen("splashScreen");
+    }
+
+    function showOnboarding() {
+      document.body.classList.remove("focus-mode");
+      screen("onboardingScreen");
+      renderStepper();
+      renderOnboarding();
+    }
+
+    function showApp() {
+      screen("appScreen");
+    }
+
+    function screen(id) {
+      ["splashScreen", "onboardingScreen", "appScreen"].forEach(s => {
+        document.getElementById(s).classList.toggle("hidden-screen", s !== id);
+      });
+    }
+
+    function renderStepper() {
+      const stepper = document.getElementById("stepper");
+      stepper.innerHTML = steps.map((step, index) => {
+        const state = index < currentStep ? "complete" : index === currentStep ? "current" : "upcoming";
+        const cls = state === "current"
+          ? "brass-border-strong bg-sepia-400/10 text-parchment-100 shadow-sepia"
+          : state === "complete"
+            ? "emerald-border bg-emerald-500/5 text-ward-emerald"
+            : "brass-border bg-obsidian-800/48 text-parchment-500";
+        const marker = state === "complete" ? "✓" : String(index + 1).padStart(2, "0");
+        return `
+	          <button type="button" onclick="goStep(${index})" class="focus-ring rounded-2xl px-3 py-3 text-left ${cls}" aria-current="${state === "current" ? "step" : "false"}" aria-label="${step.title}, ${state}">
+            <span class="block text-[10px] uppercase tracking-[.2em]">${marker}</span>
+            <span class="mt-1 block text-sm">${step.title}</span>
+          </button>
+        `;
+      }).join("");
+    }
+
+    function renderOnboarding() {
+      updateRail();
+      const step = steps[currentStep];
+      const el = document.getElementById("onboardingContent");
+      el.classList.remove("fade-in");
+      void el.offsetWidth;
+      el.classList.add("fade-in");
+
+      let special = "";
+      if (step.render === "feed") {
+        special = `
+          <div class="mt-8 grid gap-4 md:grid-cols-3">
+	            ${tier("Light memory", "1,000-5,000 words", "Enough for basic tone hints.")}
+            ${tier("Useful memory", "10,000+ words", "Stronger voice and pattern recognition.")}
+            ${tier("Deep memory", "25,000+ words", "Best for canon, characters, and long projects.")}
+          </div>
+          <div class="mt-8 rounded-2xl brass-border bg-obsidian-800/56 p-5">
+            <p class="text-xs uppercase tracking-[.2em] text-sepia-300">Import preview</p>
+	            <div id="importPreview" class="mt-4 rounded-xl border border-dashed border-sepia-400/28 bg-obsidian-950/52 p-8 text-center text-parchment-400" role="status" aria-live="polite">
+              Drop in chapters, scenes, lore notes, character sheets, fragments, or old drafts.
+            </div>
+          </div>
+        `;
+      }
+
+      if (step.render === "engine") {
+        special = `
+          <div class="mt-8 grid gap-4 md:grid-cols-2">
+            ${engineCard("Ollama", "Local-first path. Detects local models and auto-selects when safe.", "Recommended", true)}
+            ${engineCard("LM Studio", "Future local OpenAI-compatible connector.", "Coming later", false)}
+            ${engineCard("Own API key", "Disabled until secure keychain storage is implemented.", "Secure storage required", false)}
+            ${engineCard("Skip for now", "Use Canvas, Palace, imports, wards, and exports without AI.", "Always available", true)}
+          </div>
+	          <div id="ollamaResult" class="mt-6 hidden rounded-2xl emerald-border bg-emerald-500/5 p-4 text-sm text-parchment-300" role="status" aria-live="polite">
+            <p class="text-ward-emerald">● Ollama detected</p>
+            <p class="mt-2">One compatible model found. <span class="text-sepia-300">llama3.1:8b</span> selected automatically.</p>
+          </div>
+        `;
+      }
+
+      if (step.render === "wards") {
+        special = `
+          <div class="mt-8 rounded-2xl brass-border bg-obsidian-800/56 p-5">
+            <p class="text-xs uppercase tracking-[.2em] text-sepia-300">Default slop wards</p>
+            <div id="wardChips" class="mt-4 flex flex-wrap gap-2">
+	              ${["delve","testament","tapestry","realm","whispers","echoes","symphony","journey","unveil"].map(w => `<span class="rounded-full brass-border bg-sepia-400/8 px-3 py-1.5 text-xs text-parchment-200">${w} <button type="button" class="icon-button ml-1 text-parchment-500" aria-label="Remove banned word ${w}">×</button></span>`).join("")}
+	            </div>
+	            <div class="mt-5 flex gap-2">
+	              <label class="sr-only" for="wardWordInput">Word or phrase to banish</label>
+	              <input id="wardWordInput" class="focus-ring min-w-0 flex-1 rounded-xl brass-border bg-obsidian-950/70 px-3 py-2 text-sm text-parchment-200 placeholder:text-parchment-500" placeholder="Enter word or phrase" />
+	              <button type="button" class="focus-ring rounded-xl brass-border bg-obsidian-950/70 px-4 py-2 text-sm text-sepia-300">Banish</button>
+            </div>
+          </div>
+        `;
+      }
+
+      if (step.render === "canvas") {
+        special = `
+          <div class="mt-8 grid gap-4 sm:grid-cols-2">
+            ${summary("Palace", setup.palace ? "ready" : "created")}
+            ${summary("Memory", setup.memory ? "fed" : "blank")}
+            ${summary("Engine", setup.engine ? "Ollama connected" : "skipped")}
+            ${summary("Wards", setup.wards ? "active" : "skipped")}
+          </div>
+        `;
+      }
+
+      el.innerHTML = `
+        <p class="text-xs uppercase tracking-[.26em] text-sepia-300">${String(currentStep + 1).padStart(2, "0")} / ${String(steps.length).padStart(2, "0")}</p>
+        <h3 class="mt-5 font-manuscript text-5xl leading-none tracking-[-.055em] text-parchment-100 sm:text-6xl">${step.heading}</h3>
+        <p class="mt-6 max-w-3xl text-lg leading-8 text-parchment-300">${step.body}</p>
+        ${step.render === "feed" ? `<p class="mt-4 max-w-3xl text-base leading-7 text-parchment-400">Grimoire uses your word essence to recognise voice, canon, character tone, recurring details, and bad habits worth banishing. Skip this and you’ll begin with a true blank slate.</p>` : ""}
+        ${special}
+        <div class="mt-10 flex flex-wrap gap-3">
+	          <button type="button" onclick="primaryStepAction()" class="focus-ring rounded-2xl bg-gradient-to-b from-sepia-300 to-sepia-500 px-6 py-3 text-sm font-bold text-[#1a100b] shadow-sepia hover:brightness-110">${step.cta}</button>
+	          <button type="button" onclick="secondaryStepAction()" class="focus-ring rounded-2xl brass-border bg-obsidian-800/70 px-6 py-3 text-sm font-semibold text-parchment-200 hover:border-sepia-400/40">${step.secondary}</button>
+        </div>
+      `;
+    }
+
+    function tier(title, metric, body) {
+      return `
+        <div class="rounded-2xl brass-border bg-obsidian-800/56 p-4">
+          <p class="text-sm text-parchment-100">${title}</p>
+          <p class="mt-2 text-xs uppercase tracking-[.16em] text-sepia-300">${metric}</p>
+          <p class="mt-3 text-sm leading-6 text-parchment-400">${body}</p>
+        </div>
+      `;
+    }
+
+    function engineCard(title, body, tag, enabled) {
+      return `
+	        <button type="button" ${enabled ? "" : "disabled"} class="focus-ring rounded-2xl ${enabled ? "brass-border bg-obsidian-800/56 hover:border-sepia-400/40" : "border border-parchment-500/10 bg-obsidian-800/24 opacity-55"} p-5 text-left">
+          <div class="flex items-center justify-between gap-4">
+            <p class="text-lg text-parchment-100">${title}</p>
+            <span class="rounded-full ${enabled ? "emerald-border text-ward-emerald" : "brass-border text-parchment-500"} px-2 py-1 text-[10px] uppercase tracking-[.14em]">${tag}</span>
+          </div>
+          <p class="mt-3 text-sm leading-6 text-parchment-400">${body}</p>
+        </button>
+      `;
+    }
+
+    function summary(label, value) {
+      return `
+        <div class="rounded-2xl brass-border bg-obsidian-800/56 p-4">
+          <p class="text-xs uppercase tracking-[.2em] text-parchment-500">${label}</p>
+          <p class="mt-2 text-lg text-sepia-300">${value}</p>
+        </div>
+      `;
+    }
+
+    function goStep(i) {
+      currentStep = i;
+      renderStepper();
+      renderOnboarding();
+    }
+
+    function primaryStepAction() {
+      const id = steps[currentStep].id;
+      if (id === "palace") setup.palace = true;
+      if (id === "feed") {
+        setup.memory = true;
+        const preview = document.getElementById("importPreview");
+        if (preview) {
+          preview.innerHTML = `
+            <div class="mx-auto max-w-md text-left">
+              <p class="text-ward-emerald">● Reading the bones</p>
+              <p class="mt-2 text-sepia-300">● Distilling word essence</p>
+              <p class="mt-2 text-parchment-300">● Mapping canon traces</p>
+              <p class="mt-2 text-parchment-400">● Stocking the Palace</p>
+              <p class="mt-5 text-sm text-parchment-300">12,842 words prepared · 42 memory chunks created</p>
+            </div>
+          `;
+        }
+      }
+      if (id === "engine") {
+        setup.engine = true;
+        const result = document.getElementById("ollamaResult");
+        if (result) result.classList.remove("hidden");
+      }
+      if (id === "wards") setup.wards = true;
+      if (id === "canvas") {
+        showApp();
+        return;
+      }
+
+      updateRail();
+      setTimeout(() => {
+        if (currentStep < steps.length - 1) {
+          currentStep++;
+          renderStepper();
+          renderOnboarding();
+        }
+      }, id === "feed" || id === "engine" ? 900 : 250);
+    }
+
+    function secondaryStepAction() {
+      const id = steps[currentStep].id;
+      if (id === "palace") setup.palace = true;
+      if (id === "feed") setup.memory = false;
+      if (id === "engine") setup.engine = false;
+      if (id === "wards") setup.wards = false;
+      if (id === "canvas") {
+        currentStep = Math.max(0, currentStep - 1);
+        renderStepper();
+        renderOnboarding();
+        return;
+      }
+      updateRail();
+      if (currentStep < steps.length - 1) {
+        currentStep++;
+        renderStepper();
+        renderOnboarding();
+      }
+    }
+
+    function updateRail() {
+      const palace = document.getElementById("railPalace");
+      const memory = document.getElementById("railMemory");
+      const engine = document.getElementById("railEngine");
+      const wards = document.getElementById("railWards");
+      if (!palace) return;
+      palace.textContent = setup.palace ? "ready" : "pending";
+      palace.className = setup.palace ? "text-ward-emerald" : "text-sepia-300";
+      memory.textContent = setup.memory ? "fed" : "blank";
+      memory.className = setup.memory ? "text-ward-emerald" : "text-parchment-400";
+      engine.textContent = setup.engine ? "connected" : "asleep";
+      engine.className = setup.engine ? "text-ward-emerald" : "text-parchment-400";
+      wards.textContent = setup.wards ? "active" : "unset";
+      wards.className = setup.wards ? "text-ward-emerald" : "text-parchment-400";
+    }
+
+	    function toggleFocus(force) {
+	      const shouldEnable = typeof force === "boolean" ? force : !document.body.classList.contains("focus-mode");
+	      document.body.classList.toggle("focus-mode", shouldEnable);
+	      document.getElementById("focusToggle")?.setAttribute("aria-pressed", String(shouldEnable));
+	    }
+
+	    function selectPalaceItem(id) {
+	      const item = content[id] || content.mara;
+	      document.getElementById("canvasTitle").textContent = item.title;
+	      document.getElementById("canvasPath").textContent = item.path;
+	      document.getElementById("editorContent").innerHTML = item.body;
+	      document.getElementById("saveState").textContent = "Saved locally";
+	      document.getElementById("saveState").className = "text-ward-emerald";
+	      document.querySelectorAll("[data-palace-item]").forEach((button) => {
+	        button.setAttribute("aria-current", button.dataset.palaceItem === id ? "page" : "false");
+	      });
+	    }
+
+    let saveTimer;
+    function markSaving() {
+      const save = document.getElementById("saveState");
+      save.textContent = "Saving";
+      save.className = "text-sepia-300";
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        save.textContent = "Saved locally";
+        save.className = "text-ward-emerald";
+      }, 900);
+    }
+
+	    function runRetrieval() {
+	      document.getElementById("answerCard").classList.add("hidden");
+	      const retrieval = document.getElementById("retrievalState");
+	      retrieval.classList.remove("hidden");
+	      retrieval.setAttribute("aria-busy", "true");
+      ["step1","step2","step3","step4"].forEach((id, idx) => {
+        const el = document.getElementById(id);
+        el.className = idx === 0 ? "" : "opacity-40";
+        el.querySelector("span").className = idx === 0 ? "text-ward-emerald" : "";
+      });
+
+      const reveal = (stepId) => {
+        const el = document.getElementById(stepId);
+        el.className = "";
+        el.querySelector("span").className = "text-ward-emerald";
+      };
+
+      setTimeout(() => reveal("step2"), 550);
+      setTimeout(() => reveal("step3"), 1050);
+	      setTimeout(() => reveal("step4"), 1550);
+	      setTimeout(() => {
+	        document.getElementById("answerCard").classList.remove("hidden");
+	        retrieval.setAttribute("aria-busy", "false");
+	      }, 2200);
+	    }
+
+    function insertCowriterText() {
+      const editor = document.getElementById("editorContent");
+      editor.innerHTML += `<p><strong>Inserted from Co-Writer:</strong> At dawn, Vel Ashen smells of river silt, old stone, smoke trapped under bridges, and wet iron. Mara would not call it beautiful. She would call it familiar.</p>`;
+      markSaving();
+    }
+
+    // Render initial state in case user jumps directly.
+    renderStepper();
+    renderOnboarding();
+  </script>
+</body>
+</html>

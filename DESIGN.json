@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-04-28T15:16:06Z",
+  "title": "Design System: Grimoire",
+  "extensions": {
+    "colorMeta": {
+      "obsidian-deep": {
+        "role": "neutral",
+        "displayName": "Obsidian Deep",
+        "canonical": "#050506",
+        "tonalRamp": ["oklch(15% 0.006 290)", "oklch(22% 0.006 290)", "oklch(30% 0.006 290)", "oklch(40% 0.006 290)", "oklch(52% 0.006 290)", "oklch(66% 0.006 290)", "oklch(80% 0.006 290)", "oklch(94% 0.006 290)"]
+      },
+      "bronze-accent": {
+        "role": "accent",
+        "displayName": "Bronze Accent",
+        "canonical": "#b88762",
+        "tonalRamp": ["oklch(18% 0.055 43)", "oklch(28% 0.075 43)", "oklch(40% 0.095 43)", "oklch(52% 0.115 43)", "oklch(64% 0.135 43)", "oklch(74% 0.11 43)", "oklch(84% 0.075 43)", "oklch(94% 0.035 43)"]
+      },
+      "ward-emerald": {
+        "role": "secondary",
+        "displayName": "Ward Emerald",
+        "canonical": "#10b981",
+        "tonalRamp": ["oklch(18% 0.055 160)", "oklch(28% 0.075 160)", "oklch(40% 0.095 160)", "oklch(52% 0.115 160)", "oklch(64% 0.135 160)", "oklch(74% 0.11 160)", "oklch(84% 0.075 160)", "oklch(94% 0.035 160)"]
+      },
+      "parchment-primary": {
+        "role": "neutral",
+        "displayName": "Parchment Primary",
+        "canonical": "#e8e5dd",
+        "tonalRamp": ["oklch(18% 0.018 68)", "oklch(28% 0.018 68)", "oklch(40% 0.018 68)", "oklch(52% 0.018 68)", "oklch(64% 0.018 68)", "oklch(74% 0.016 68)", "oklch(84% 0.012 68)", "oklch(94% 0.008 68)"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Canvas titles, onboarding headings, and major literary moments."
+      },
+      "manuscript": {
+        "displayName": "Manuscript",
+        "purpose": "Long-form writing, prose, and author-facing body copy."
+      },
+      "telemetry": {
+        "displayName": "Telemetry",
+        "purpose": "Navigation, retrieval status, metadata, paths, controls, and settings."
+      }
+    },
+    "shadows": [
+      {
+        "name": "deep-shell",
+        "value": "0 28px 80px rgba(0, 0, 0, 0.45)",
+        "purpose": "Main app shell and prototype-level framed surfaces."
+      },
+      {
+        "name": "bronze-detail",
+        "value": "inset 0 0 0 1px rgba(184, 135, 98, 0.08)",
+        "purpose": "Selected rows, fine dividers, small brand accents, and focused control details."
+      },
+      {
+        "name": "emerald-pulse",
+        "value": "0 0 22px rgba(16, 185, 129, 0.32)",
+        "purpose": "Connection and retrieval indicators only."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-quart",
+        "value": "cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "Default easing for hover, focus, and panel transitions."
+      },
+      {
+        "name": "state-transition",
+        "value": "160ms cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "Compact state changes without theatrical movement."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary graphite action with a small bronze edge for setup, import, and writer-controlled insertion.",
+      "html": "<button class=\"ds-btn-primary\">Feed the Palace</button>",
+      "css": ".ds-btn-primary { background: #202326; color: #e8e5dd; border: 1px solid rgba(184, 135, 98, 0.22); border-radius: 12px; padding: 12px 20px; font-family: JetBrains Mono, IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 700; line-height: 1.2; box-shadow: inset 0 1px 0 rgba(232, 229, 221, 0.045); transition: filter 160ms cubic-bezier(0.25, 1, 0.5, 1), transform 160ms cubic-bezier(0.25, 1, 0.5, 1); } .ds-btn-primary:hover { filter: brightness(1.08); transform: translateY(-1px); } .ds-btn-primary:focus-visible { outline: 2px solid rgba(211, 170, 124, 0.72); outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Quiet secondary action for non-primary setup and navigation choices.",
+      "html": "<button class=\"ds-btn-secondary\">Start blank</button>",
+      "css": ".ds-btn-secondary { background: rgba(17, 20, 23, 0.72); color: #e8e5dd; border: 1px solid rgba(232, 229, 221, 0.09); border-radius: 12px; padding: 10px 16px; font-family: JetBrains Mono, IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 600; line-height: 1.2; transition: border-color 160ms cubic-bezier(0.25, 1, 0.5, 1), background-color 160ms cubic-bezier(0.25, 1, 0.5, 1); } .ds-btn-secondary:hover { background: rgba(28, 32, 35, 0.9); border-color: rgba(232, 229, 221, 0.16); } .ds-btn-secondary:focus-visible { outline: 2px solid rgba(211, 170, 124, 0.72); outline-offset: 2px; }"
+    },
+    {
+      "name": "Inset Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Dark inset field for search, prompts, and settings values.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Search memory</span><input class=\"ds-input\" placeholder=\"character, city, chapter...\" /></label>",
+      "css": ".ds-field { display: grid; gap: 8px; font-family: JetBrains Mono, IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace; } .ds-field-label { color: #7f847d; font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; } .ds-input { background: rgba(5, 6, 7, 0.72); color: #e8e5dd; border: 1px solid rgba(232, 229, 221, 0.09); border-radius: 12px; padding: 10px 12px; font: inherit; font-size: 13px; outline: none; } .ds-input::placeholder { color: #5f645e; } .ds-input:focus-visible { outline: 2px solid rgba(211, 170, 124, 0.72); outline-offset: 2px; border-color: rgba(184, 135, 98, 0.22); }"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "refersTo": "status-chip",
+      "description": "Compact state marker for local status, save state, model connection, and wards.",
+      "html": "<span class=\"ds-status-chip\"><span class=\"ds-status-dot\"></span>Saved locally</span>",
+      "css": ".ds-status-chip { display: inline-flex; align-items: center; gap: 8px; background: rgba(16, 185, 129, 0.08); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.42); border-radius: 16px; padding: 6px 10px; font-family: JetBrains Mono, IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1; } .ds-status-dot { width: 7px; height: 7px; border-radius: 999px; background: #10b981; box-shadow: 0 0 22px rgba(16, 185, 129, 0.32); }"
+    },
+    {
+      "name": "Source Citation Card",
+      "kind": "card",
+      "refersTo": "source-citation-card",
+      "description": "Grounding proof for Co-Writer answers that used Palace memory.",
+      "html": "<article class=\"ds-source-card\"><div class=\"ds-source-top\"><strong>Vel Ashen</strong><span>location</span></div><p class=\"ds-source-path\">The Novel / World / Cities / Northern Cities</p><p class=\"ds-source-excerpt\">river silt, smoke, old stone...</p></article>",
+      "css": ".ds-source-card { background: rgba(17, 20, 23, 0.72); color: #e8e5dd; border: 1px solid rgba(232, 229, 221, 0.09); border-radius: 12px; padding: 12px; font-family: JetBrains Mono, IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace; } .ds-source-top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; } .ds-source-top strong { font-size: 14px; font-weight: 600; } .ds-source-top span { color: #b88762; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; } .ds-source-path { margin: 6px 0 0; color: #7f847d; font-size: 12px; line-height: 1.5; } .ds-source-excerpt { margin: 8px 0 0; color: #b8bbb4; font-family: Merriweather, Crimson Text, Crimson Pro, Georgia, serif; font-size: 14px; line-height: 1.6; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Private Manuscript Chamber",
+    "overview": "Grimoire is digital dark academia shaped into a serious local writing instrument. It should feel like a private manuscript chamber, spatial archive, and local AI console for writers who care about canon, voice, and ownership. The atmosphere is dark, literary, precise, tactile, and quietly premium.\n\nThe design serves long writing sessions. It should be calm enough for prose, dense enough for memory and retrieval, and theatrical only where the product language benefits from it. The brand can use occult and archive motifs, but the interaction model stays practical.\n\nIt explicitly rejects generic SaaS dashboard aesthetics, bloated AI writing suites, startup hype, childish wizard roleplay copy, game UI excess, neon cyberpunk, pastel gradients, and standard admin panel layouts.",
+    "keyCharacteristics": [
+      "Local-first trust signals are visible without becoming marketing.",
+      "The Canvas gets the strongest visual priority.",
+      "The Palace feels spatial and archival, not like a plain file tree.",
+      "The Co-Writer feels useful and cited, not magical in a hand-wavy way.",
+      "Motion is restrained, with status changes and focus transitions only."
+    ],
+    "rules": [
+      {
+        "name": "The Emerald Rarity Rule",
+        "body": "Emerald only means local, connected, saved, retrieved, or passed. If it is decorative, it is wrong.",
+        "section": "colors"
+      },
+      {
+        "name": "The No Cold Grey Rule",
+        "body": "Use graphite and charcoal as the main surface language. Avoid brown or bronze dominance, and avoid generic Tailwind slate drift.",
+        "section": "colors"
+      },
+      {
+        "name": "The Bronze Rarity Rule",
+        "body": "Bronze only means brand detail, selected state, fine divider, or focused control. If it carries whole panels or body text, it is wrong.",
+        "section": "colors"
+      },
+      {
+        "name": "The Manuscript First Rule",
+        "body": "Serif prose must be more comfortable than every surrounding control. If the UI chrome competes with the writing, reduce the chrome.",
+        "section": "typography"
+      },
+      {
+        "name": "The Uppercase Sparingly Rule",
+        "body": "Uppercase telemetry labels are allowed, but never as paragraph text or long instructions.",
+        "section": "typography"
+      },
+      {
+        "name": "The Inset Chamber Rule",
+        "body": "Panels feel built into the surface. Avoid bright floating cards and generic heavy drop shadows.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep the Canvas visually dominant over Palace and Co-Writer panels.",
+      "Do use charcoal and graphite as the structural UI system.",
+      "Do use bronze only for fine borders, selected-state details, small brand accents, and focus indicators.",
+      "Do reserve ward emerald for local status, retrieval progress, save success, memory confidence, and guardrail pass states.",
+      "Do offer an optional ivory manuscript mode for users who prefer a lighter long-form writing surface.",
+      "Do show source paths and citations whenever the Co-Writer uses Palace memory.",
+      "Do use visible labels for inputs and accessible names for icon-only buttons.",
+      "Do make project ownership visible through local save state, export actions, and privacy copy.",
+      "Do support keyboard focus with a visible brass outline."
+    ],
+    "donts": [
+      "Don't use a generic SaaS dashboard aesthetic.",
+      "Don't build a bloated AI writing suite.",
+      "Don't use startup hype or generic AI productivity copy.",
+      "Don't write childish wizard roleplay copy or long fantasy paragraphs.",
+      "Don't use fake urgency or SaaS upgrade language.",
+      "Don't make the app feel like a developer tool.",
+      "Don't use a standard admin panel, game UI, bright cyberpunk overload, pastel gradient marketing, or cartoon fantasy styling.",
+      "Don't use blue as the primary action color.",
+      "Don't make the Co-Writer dominate the Canvas.",
+      "Don't use brown, bronze, sepia, or amber as the dominant panel or text system.",
+      "Don't use decorative display serifs for Canvas body writing.",
+      "Don't overuse emoji inside the app UI.",
+      "Don't introduce unnecessary component libraries or heavy design system packages."
+    ]
+  }
+}
