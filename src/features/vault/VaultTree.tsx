@@ -13,6 +13,7 @@ interface VaultTreeProps {
   activeItemId: string;
   expandedNodeIds: Set<string>;
   onArchiveItem: (itemId: string) => void;
+  onCreateNode: (nodeType: "wing" | "hall" | "room" | "drawer" | "item", parentId?: string) => void;
   onToggle: (nodeId: string) => void;
   onSelectItem: (itemId: string) => void;
 }
@@ -51,13 +52,16 @@ function TreeBranch({
   );
 }
 
-function DrawerBranch({ drawer, activeItemId, expandedNodeIds, onArchiveItem, onToggle, onSelectItem }: {
+function DrawerBranch({ drawer, activeItemId, expandedNodeIds, onArchiveItem, onCreateNode, onToggle, onSelectItem }: {
   drawer: VaultDrawerNode; activeItemId: string; expandedNodeIds: Set<string>;
-  onArchiveItem: (id: string) => void; onToggle: (id: string) => void; onSelectItem: (id: string) => void;
+  onArchiveItem: (id: string) => void; onCreateNode: (nodeType: "item", parentId: string) => void; onToggle: (id: string) => void; onSelectItem: (id: string) => void;
 }) {
   const expanded = expandedNodeIds.has(drawer.id);
   return (
     <TreeBranch id={drawer.id} label={drawer.name} meta={`Drawer / ${drawer.items.length} items`} level={3} expanded={expanded} onToggle={onToggle}>
+      <div className="tree-actions">
+        <button className="text-button" type="button" onClick={() => onCreateNode("item", drawer.id)}>New Item</button>
+      </div>
       {drawer.items.map((item) => (
         <div key={item.id} className={`tree-item ${item.id === activeItemId ? "active" : ""}`}
           onClick={() => onSelectItem(item.id)} role="button" tabIndex={0}
@@ -74,49 +78,58 @@ function DrawerBranch({ drawer, activeItemId, expandedNodeIds, onArchiveItem, on
   );
 }
 
-function RoomBranch({ room, activeItemId, expandedNodeIds, onArchiveItem, onToggle, onSelectItem }: {
+function RoomBranch({ room, activeItemId, expandedNodeIds, onArchiveItem, onCreateNode, onToggle, onSelectItem }: {
   room: VaultRoomNode; activeItemId: string; expandedNodeIds: Set<string>;
-  onArchiveItem: (id: string) => void; onToggle: (id: string) => void; onSelectItem: (id: string) => void;
+  onArchiveItem: (id: string) => void; onCreateNode: (nodeType: "drawer" | "item", parentId: string) => void; onToggle: (id: string) => void; onSelectItem: (id: string) => void;
 }) {
   const expanded = expandedNodeIds.has(room.id);
   return (
     <TreeBranch id={room.id} label={room.name} meta={`Room / ${countRoomItems(room)} items`} level={2} expanded={expanded} onToggle={onToggle}>
+      <div className="tree-actions">
+        <button className="text-button" type="button" onClick={() => onCreateNode("drawer", room.id)}>New Drawer</button>
+      </div>
       {room.drawers.map((drawer) => (
-        <DrawerBranch key={drawer.id} drawer={drawer} activeItemId={activeItemId} expandedNodeIds={expandedNodeIds} onArchiveItem={onArchiveItem} onToggle={onToggle} onSelectItem={onSelectItem} />
+        <DrawerBranch key={drawer.id} drawer={drawer} activeItemId={activeItemId} expandedNodeIds={expandedNodeIds} onArchiveItem={onArchiveItem} onCreateNode={onCreateNode} onToggle={onToggle} onSelectItem={onSelectItem} />
       ))}
     </TreeBranch>
   );
 }
 
-function HallBranch({ hall, activeItemId, expandedNodeIds, onArchiveItem, onToggle, onSelectItem }: {
+function HallBranch({ hall, activeItemId, expandedNodeIds, onArchiveItem, onCreateNode, onToggle, onSelectItem }: {
   hall: VaultHallNode; activeItemId: string; expandedNodeIds: Set<string>;
-  onArchiveItem: (id: string) => void; onToggle: (id: string) => void; onSelectItem: (id: string) => void;
+  onArchiveItem: (id: string) => void; onCreateNode: (nodeType: "room" | "drawer" | "item", parentId: string) => void; onToggle: (id: string) => void; onSelectItem: (id: string) => void;
 }) {
   const expanded = expandedNodeIds.has(hall.id);
   return (
     <TreeBranch id={hall.id} label={hall.name} meta={`Hall / ${countHallItems(hall)} items`} level={1} expanded={expanded} onToggle={onToggle}>
+      <div className="tree-actions">
+        <button className="text-button" type="button" onClick={() => onCreateNode("room", hall.id)}>New Room</button>
+      </div>
       {hall.rooms.map((room) => (
-        <RoomBranch key={room.id} room={room} activeItemId={activeItemId} expandedNodeIds={expandedNodeIds} onArchiveItem={onArchiveItem} onToggle={onToggle} onSelectItem={onSelectItem} />
+        <RoomBranch key={room.id} room={room} activeItemId={activeItemId} expandedNodeIds={expandedNodeIds} onArchiveItem={onArchiveItem} onCreateNode={onCreateNode} onToggle={onToggle} onSelectItem={onSelectItem} />
       ))}
     </TreeBranch>
   );
 }
 
-function WingBranch({ wing, activeItemId, expandedNodeIds, onArchiveItem, onToggle, onSelectItem }: {
+function WingBranch({ wing, activeItemId, expandedNodeIds, onArchiveItem, onCreateNode, onToggle, onSelectItem }: {
   wing: VaultWingNode; activeItemId: string; expandedNodeIds: Set<string>;
-  onArchiveItem: (id: string) => void; onToggle: (id: string) => void; onSelectItem: (id: string) => void;
+  onArchiveItem: (id: string) => void; onCreateNode: (nodeType: "hall" | "room" | "drawer" | "item", parentId: string) => void; onToggle: (id: string) => void; onSelectItem: (id: string) => void;
 }) {
   const expanded = expandedNodeIds.has(wing.id);
   return (
     <TreeBranch id={wing.id} label={wing.name} meta={`Wing / ${countWingItems(wing)} items`} level={0} expanded={expanded} onToggle={onToggle}>
+      <div className="tree-actions">
+        <button className="text-button" type="button" onClick={() => onCreateNode("hall", wing.id)}>New Hall</button>
+      </div>
       {wing.halls.map((hall) => (
-        <HallBranch key={hall.id} hall={hall} activeItemId={activeItemId} expandedNodeIds={expandedNodeIds} onArchiveItem={onArchiveItem} onToggle={onToggle} onSelectItem={onSelectItem} />
+        <HallBranch key={hall.id} hall={hall} activeItemId={activeItemId} expandedNodeIds={expandedNodeIds} onArchiveItem={onArchiveItem} onCreateNode={onCreateNode} onToggle={onToggle} onSelectItem={onSelectItem} />
       ))}
     </TreeBranch>
   );
 }
 
-export function VaultTree({ tree, activeItemId, expandedNodeIds, onArchiveItem, onToggle, onSelectItem }: VaultTreeProps) {
+export function VaultTree({ tree, activeItemId, expandedNodeIds, onArchiveItem, onCreateNode, onToggle, onSelectItem }: VaultTreeProps) {
   if (tree.itemCount === 0) {
     return (
       <div className="vault-empty">
@@ -129,7 +142,7 @@ export function VaultTree({ tree, activeItemId, expandedNodeIds, onArchiveItem, 
   return (
     <nav className="vault-tree" aria-label="Vault memory">
       {tree.wings.map((wing) => (
-        <WingBranch key={wing.id} wing={wing} activeItemId={activeItemId} expandedNodeIds={expandedNodeIds} onArchiveItem={onArchiveItem} onToggle={onToggle} onSelectItem={onSelectItem} />
+        <WingBranch key={wing.id} wing={wing} activeItemId={activeItemId} expandedNodeIds={expandedNodeIds} onArchiveItem={onArchiveItem} onCreateNode={onCreateNode} onToggle={onToggle} onSelectItem={onSelectItem} />
       ))}
     </nav>
   );

@@ -16,6 +16,7 @@ interface CanvasPanelProps {
   onContentChange: (v: string) => void;
   onExportItem: () => void;
   onExportProject: () => void;
+  onExportVaultItems: () => void;
   onArchiveItem: () => void;
   onDeleteItem: () => void;
 }
@@ -34,7 +35,7 @@ function saveStateLabel(saveState: SaveState): string {
 export function CanvasPanel({
   activeItem, editorTitle, editorContent, editorWordCount,
   saveState, saveError, exportState, exportStatus,
-  onTitleChange, onContentChange, onExportItem, onExportProject,
+  onTitleChange, onContentChange, onExportItem, onExportProject, onExportVaultItems,
   onArchiveItem, onDeleteItem,
 }: CanvasPanelProps) {
   return (
@@ -79,6 +80,10 @@ export function CanvasPanel({
         <button className="button button-secondary" type="button" onClick={onExportProject}>
           <Download size={16} aria-hidden="true" />
           Export Project
+        </button>
+        <button className="button button-secondary" type="button" onClick={onExportVaultItems}>
+          <Download size={16} aria-hidden="true" />
+          Export Vault JSON
         </button>
         <button className="button button-secondary" type="button" onClick={onArchiveItem}>
           <Archive size={16} aria-hidden="true" />

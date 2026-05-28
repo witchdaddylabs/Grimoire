@@ -25,7 +25,7 @@ pub struct ProjectMetadata {
     pub updated_at: String,
 }
 
-// ── Vault (formerly Palace) ──
+// ── Vault hierarchy ──
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -92,6 +92,31 @@ pub struct VaultItemDetail {
     pub word_count: i64,
     pub path: String,
     pub updated_at: String,
+}
+
+// ── Vault node creation ──
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateVaultNodeRequest {
+    pub project_path: String,
+    /// "wing", "hall", "room", "drawer", or "item"
+    pub node_type: String,
+    /// Parent ID: not required for wings, required for all others
+    pub parent_id: Option<String>,
+    pub name: String,
+    pub description: Option<String>,
+    /// Only for items: "chapter", "scene", "character", "location", "lore", "timeline", "faction", "research", "note"
+    pub item_type: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateVaultNodeResponse {
+    pub id: String,
+    pub node_type: String,
+    /// Updated tree after creation
+    pub tree: VaultTreeResponse,
 }
 
 // ── Item commands ──
@@ -261,6 +286,44 @@ pub struct OllamaChatRequest {
 pub struct OllamaChatResponse {
     pub model: String,
     pub text: String,
+}
+
+// ── Export ──
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalVaultStructure {
+    pub wings: Vec<ExternalVaultWing>,
+    pub total_wings: usize,
+    pub total_rooms: usize,
+    pub total_drawers: usize,
+    pub source_file: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalVaultWing {
+    pub name: String,
+    pub path: Option<String>,
+    pub rooms: Vec<ExternalVaultRoom>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalVaultRoom {
+    pub name: String,
+    pub keywords: Vec<String>,
+    pub entities: Vec<String>,
+    pub drawers: Vec<ExternalVaultDrawer>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalVaultDrawer {
+    pub name: String,
+    pub keywords: Vec<String>,
+    pub descriptions: Vec<String>,
+    pub entities: Vec<String>,
 }
 
 // ── Export ──

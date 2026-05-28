@@ -9,11 +9,12 @@ import type {
   VaultTreeResponse,
   VaultWingNode,
   SearchChunkResult,
+  ExternalVaultStructure,
 } from "../../app/vault";
 import { flattenVaultItems } from "../../app/vault";
 import { PanelHeader } from "../../components/PanelHeader";
 import { CollapsedRail } from "../../components/CollapsedRail";
-import type { ToolSectionId } from "../../components/types";
+import type { AsyncState } from "../../components/types";
 import { VaultTree } from "./VaultTree";
 
 interface VaultPanelProps {
@@ -35,6 +36,12 @@ interface VaultPanelProps {
   onSelectItem: (itemId: string) => void;
   onArchiveItem: (itemId: string) => void;
   onDeleteItem: (itemId: string) => void;
+  onCreateNode: (nodeType: "wing" | "hall" | "room" | "drawer" | "item", parentId?: string) => void;
+  externalVault: ExternalVaultStructure | null;
+  externalVaultState: AsyncState;
+  externalVaultStatus: string;
+  onOpenExternalVault: () => void;
+  onClearExternalVault: () => void;
   onExpandLeft: () => void;
   onCollapseLeft: () => void;
   compactPath: (p: string) => string;
@@ -59,6 +66,12 @@ export function VaultPanel({
   onSelectItem,
   onArchiveItem,
   onDeleteItem,
+  onCreateNode,
+  externalVault,
+  externalVaultState,
+  externalVaultStatus,
+  onOpenExternalVault,
+  onClearExternalVault,
   onExpandLeft,
   onCollapseLeft,
   compactPath,
@@ -112,6 +125,13 @@ export function VaultPanel({
           </small>
         </div>
 
+        <div className="search-summary">
+          <strong>Build your Vault hierarchy</strong>
+          <button className="text-button" type="button" onClick={() => onCreateNode("wing")}>
+            New Wing
+          </button>
+        </div>
+
         <form className="vault-search" onSubmit={onSearch}>
           <Search size={15} aria-hidden="true" />
           <input
@@ -133,11 +153,49 @@ export function VaultPanel({
         ) : null}
         {searchError ? <p className="inline-error">{searchError}</p> : null}
 
+
+        <div className="external-vault-card">
+          <div className="search-summary external-vault-header">
+            <strong>External Vault YAML</strong>
+            <span className={`operation-status ${externalVaultState}`}>{externalVaultStatus}</span>
+          </div>
+          <div className="external-vault-actions">
+            <button className="text-button" type="button" onClick={onOpenExternalVault}>
+              Open YAML
+            </button>
+            {externalVault ? (
+              <button className="text-button" type="button" onClick={onClearExternalVault}>
+                Clear
+              </button>
+            ) : null}
+          </div>
+          {externalVault ? (
+            <div className="external-vault-tree">
+              <small>{compactPath(externalVault.sourceFile)}</small>
+              {externalVault.wings.map((wing) => (
+                <details key={`${externalVault.sourceFile}:${wing.name}`} open>
+                  <summary>{wing.name} <span>{wing.rooms.length} rooms</span></summary>
+                  {wing.rooms.map((room) => (
+                    <details key={`${wing.name}:${room.name}`}>
+                      <summary>{room.name} <span>{room.drawers.length} drawers</span></summary>
+                      <ul>
+                        {room.drawers.map((drawer) => (
+                          <li key={`${wing.name}:${room.name}:${drawer.name}`}>{drawer.name}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  ))}
+                </details>
+              ))}
+            </div>
+          ) : null}
+        </div>
         <VaultTree
           tree={tree}
           activeItemId={activeItem?.id ?? ""}
           expandedNodeIds={expandedNodeIds}
           onArchiveItem={onArchiveItem}
+          onCreateNode={onCreateNode}
           onToggle={onToggle}
           onSelectItem={onSelectItem}
         />

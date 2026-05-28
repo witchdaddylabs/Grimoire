@@ -3,15 +3,16 @@
 mod ai;
 mod db;
 mod errors;
+mod external_vault;
 mod llm;
 
 use ai::{
-    cloud_provider, AiApiKeyRequest, AiChatRequest, AiChatResponse,
-    AiModelInfo, AiProviderKind,
+    cloud_provider, AiApiKeyRequest, AiChatRequest, AiChatResponse, AiModelInfo, AiProviderKind,
     AiProviderModelsResponse, AiProviderSelectionRequest, AiProviderSettings,
     AiProviderSettingsResponse, AiProviderSettingsSaveRequest, CloudDisclosureAcceptRequest,
     CLOUD_DISCLOSURE_COPY, PROVIDERS,
 };
+use external_vault::parse_external_vault;
 use rusqlite::{params, Connection};
 use security_framework::passwords;
 use serde::{Deserialize, Serialize};
@@ -257,6 +258,141 @@ fn db_delete_item(request: ItemDeleteRequest) -> CommandResult<VaultTreeResponse
 }
 
 #[tauri::command]
+fn db_create_vault_node(request: CreateVaultNodeRequest) -> CommandResult<CreateVaultNodeResponse> {
+    let connection = open_project_database(&request.project_path)?;
+    let now = timestamp();
+    let node_type = request.node_type.trim().to_lowercase();
+    let node_id = format!("{}_{}", node_type, timestamp_nanos());
+    let name = request.name.trim().to_string();
+
+    if name.is_empty() {
+        return Err("Name is required.".to_string());
+    }
+
+    match node_type.as_str() {
+        "wing" => {
+            let sort_order: i64 = connection
+                .query_row(
+                    "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM wings",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|error| format!("Could not calculate wing sort order: {error}"))?;
+            connection
+                .execute(
+                    r#"
+                    INSERT INTO wings (id, name, description, sort_order, created_at, updated_at)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+                    "#,
+                    params![
+                        node_id,
+                        name,
+                        request.description.unwrap_or_default(),
+                        sort_order,
+                        now
+                    ],
+                )
+                .map_err(|error| format!("Could not create Vault wing: {error}"))?;
+        }
+        "hall" => {
+            let parent_id = request.parent_id.ok_or("Wing ID is required for halls.")?;
+            ensure_hierarchy_node(&connection, "wings", &parent_id, "wing")?;
+            let sort_order = next_sort_order(&connection, "halls", "wing_id", &parent_id)?;
+            connection
+                .execute(
+                    r#"
+                    INSERT INTO halls (id, wing_id, name, description, sort_order, created_at, updated_at)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+                    "#,
+                    params![node_id, parent_id, name, request.description.unwrap_or_default(), sort_order, now],
+                )
+                .map_err(|error| format!("Could not create Vault hall: {error}"))?;
+        }
+        "room" => {
+            let parent_id = request.parent_id.ok_or("Hall ID is required for rooms.")?;
+            ensure_hierarchy_node(&connection, "halls", &parent_id, "hall")?;
+            let sort_order = next_sort_order(&connection, "rooms", "hall_id", &parent_id)?;
+            connection
+                .execute(
+                    r#"
+                    INSERT INTO rooms (id, hall_id, name, description, sort_order, created_at, updated_at)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+                    "#,
+                    params![node_id, parent_id, name, request.description.unwrap_or_default(), sort_order, now],
+                )
+                .map_err(|error| format!("Could not create Vault room: {error}"))?;
+        }
+        "drawer" => {
+            let parent_id = request
+                .parent_id
+                .ok_or("Room ID is required for drawers.")?;
+            ensure_hierarchy_node(&connection, "rooms", &parent_id, "room")?;
+            let sort_order = next_sort_order(&connection, "drawers", "room_id", &parent_id)?;
+            connection
+                .execute(
+                    r#"
+                    INSERT INTO drawers (id, room_id, name, description, sort_order, created_at, updated_at)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+                    "#,
+                    params![node_id, parent_id, name, request.description.unwrap_or_default(), sort_order, now],
+                )
+                .map_err(|error| format!("Could not create Vault drawer: {error}"))?;
+        }
+        "item" => {
+            let parent_id = request
+                .parent_id
+                .ok_or("Drawer ID is required for items.")?;
+            ensure_hierarchy_node(&connection, "drawers", &parent_id, "drawer")?;
+            let item_type = request
+                .item_type
+                .as_deref()
+                .unwrap_or("note")
+                .trim()
+                .to_lowercase();
+            let valid_types = [
+                "chapter",
+                "scene",
+                "character",
+                "location",
+                "lore",
+                "timeline",
+                "faction",
+                "research",
+                "note",
+            ];
+            if !valid_types.contains(&item_type.as_str()) {
+                return Err(format!(
+                    "Invalid item type. Choose one of: {}",
+                    valid_types.join(", ")
+                ));
+            }
+            let sort_order = next_sort_order(&connection, "items", "drawer_id", &parent_id)?;
+            connection
+                .execute(
+                    r#"
+                    INSERT INTO items (
+                        id, drawer_id, title, item_type, content, plain_text, word_count,
+                        source_kind, sort_order, created_at, updated_at
+                    )
+                    VALUES (?1, ?2, ?3, ?4, '', '', 0, 'manual', ?5, ?6, ?6)
+                    "#,
+                    params![node_id, parent_id, name, item_type, sort_order, now],
+                )
+                .map_err(|error| format!("Could not create Vault item: {error}"))?;
+        }
+        _ => {
+            return Err("Node type must be wing, hall, room, drawer, or item.".to_string());
+        }
+    }
+
+    Ok(CreateVaultNodeResponse {
+        id: node_id,
+        node_type,
+        tree: read_vault_tree(&connection)?,
+    })
+}
+
+#[tauri::command]
 fn db_search_chunks(request: SearchChunksRequest) -> CommandResult<SearchChunksResponse> {
     let connection = open_project_database(&request.project_path)?;
     let query = request.query.trim().to_string();
@@ -300,7 +436,7 @@ fn db_search_chunks(request: SearchChunksRequest) -> CommandResult<SearchChunksR
                 confidence: confidence_for_score(score),
             })
         })
-        .map_err(|error| format!("Could not search Palace chunks: {error}"))?;
+        .map_err(|error| format!("Could not search Vault chunks: {error}"))?;
 
     let mut results = Vec::new();
     for result in mapped {
@@ -552,7 +688,7 @@ fn ai_chat(request: AiChatRequest) -> CommandResult<AiChatResponse> {
         let settings = provider_settings(&connection, request.provider)?;
         if settings.disclosure_accepted_at.is_none() {
             return Err(
-                "Accept the cloud model disclosure before sending Palace context to this provider."
+                "Accept the cloud model disclosure before sending Vault context to this provider."
                     .to_string(),
             );
         }
@@ -625,6 +761,88 @@ fn export_project_json(project_path: String) -> CommandResult<ExportResponse> {
     })
 }
 
+#[tauri::command]
+fn export_vault_items_json(project_path: String) -> CommandResult<ExportResponse> {
+    let project_dir = validate_project_dir(PathBuf::from(&project_path))?;
+    let metadata = read_metadata(&project_dir)?;
+    let connection = open_project_database(&project_path)?;
+    let export_dir = project_dir.join("exports");
+    fs::create_dir_all(&export_dir)
+        .map_err(|error| format!("Could not create export folder: {error}"))?;
+    let file_path = export_dir.join(format!("grimoire-vault-items-{}.json", timestamp()));
+
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT
+              id,
+              title,
+              item_type,
+              COALESCE(content, ''),
+              COALESCE(plain_text, ''),
+              word_count,
+              source_kind,
+              source_path,
+              created_at,
+              updated_at
+            FROM items
+            WHERE archived_at IS NULL
+            ORDER BY sort_order, updated_at DESC
+            "#,
+        )
+        .map_err(|error| format!("Could not prepare Vault items export: {error}"))?;
+
+    let rows = statement
+        .query_map([], |row| {
+            let id: String = row.get(0)?;
+            let title: String = row.get(1)?;
+            let path = item_path(&connection, &id, &title).unwrap_or_else(|_| title.clone());
+            Ok(json!({
+                "id": id,
+                "title": title,
+                "itemType": row.get::<_, String>(2)?,
+                "content": row.get::<_, String>(3)?,
+                "plainText": row.get::<_, String>(4)?,
+                "wordCount": row.get::<_, i64>(5)?,
+                "path": path,
+                "sourceKind": row.get::<_, String>(6)?,
+                "sourcePath": row.get::<_, Option<String>>(7)?,
+                "createdAt": row.get::<_, String>(8)?,
+                "updatedAt": row.get::<_, String>(9)?,
+            }))
+        })
+        .map_err(|error| format!("Could not query Vault items for export: {error}"))?;
+
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|error| format!("Could not read Vault export row: {error}"))?);
+    }
+
+    let payload = json!({
+        "exportedAt": timestamp(),
+        "project": {
+            "name": metadata.name,
+            "schemaVersion": metadata.schema_version,
+            "projectPath": metadata.project_path
+        },
+        "items": items
+    });
+    let raw = serde_json::to_string_pretty(&payload)
+        .map_err(|error| format!("Could not serialize Vault items export: {error}"))?;
+    fs::write(&file_path, raw)
+        .map_err(|error| format!("Could not write Vault items export: {error}"))?;
+
+    Ok(ExportResponse {
+        path: file_path.to_string_lossy().to_string(),
+        message: "Vault items JSON export written.".to_string(),
+    })
+}
+
+#[tauri::command]
+fn external_vault_parse(path: Option<String>) -> CommandResult<ExternalVaultStructure> {
+    parse_external_vault(path)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -641,6 +859,7 @@ fn main() {
             db_import_text,
             db_archive_item,
             db_delete_item,
+            db_create_vault_node,
             db_search_chunks,
             wards_list,
             wards_add,
@@ -658,6 +877,8 @@ fn main() {
             ollama_select_model,
             ollama_chat,
             export_item_markdown,
+            export_vault_items_json,
+            external_vault_parse,
             export_project_json
         ])
         .run(tauri::generate_context!())
@@ -904,7 +1125,7 @@ fn upsert_project_metadata(
 fn seed_vault_demo_data(connection: &mut Connection) -> CommandResult<()> {
     let existing_wings: i64 = connection
         .query_row("SELECT COUNT(*) FROM wings", [], |row| row.get(0))
-        .map_err(|error| format!("Could not inspect Palace seed data: {error}"))?;
+        .map_err(|error| format!("Could not inspect Vault seed data: {error}"))?;
 
     if existing_wings > 0 {
         return Ok(());
@@ -913,7 +1134,7 @@ fn seed_vault_demo_data(connection: &mut Connection) -> CommandResult<()> {
     let now = timestamp();
     let transaction = connection
         .transaction()
-        .map_err(|error| format!("Could not start Palace seed transaction: {error}"))?;
+        .map_err(|error| format!("Could not start Vault seed transaction: {error}"))?;
 
     transaction
         .execute(
@@ -1048,7 +1269,7 @@ fn seed_vault_demo_data(connection: &mut Connection) -> CommandResult<()> {
 
     transaction
         .commit()
-        .map_err(|error| format!("Could not commit Palace seed data: {error}"))?;
+        .map_err(|error| format!("Could not commit Vault seed data: {error}"))?;
 
     Ok(())
 }
@@ -1281,7 +1502,7 @@ fn item_path(connection: &Connection, item_id: &str, title: &str) -> CommandResu
                 Ok(format!("{wing} / {hall} / {room} / {drawer} / {title}"))
             },
         )
-        .map_err(|error| format!("Could not resolve Palace path: {error}"))
+        .map_err(|error| format!("Could not resolve Vault path: {error}"))
 }
 
 fn item_type(connection: &Connection, item_id: &str) -> CommandResult<String> {
@@ -1300,7 +1521,7 @@ fn ensure_import_drawer(connection: &Connection) -> CommandResult<String> {
         .execute(
             r#"
             INSERT OR IGNORE INTO wings (id, name, description, sort_order, created_at, updated_at)
-            VALUES ('wing_imports', 'The Palace', 'Imported writing and notes', 99, ?1, ?1)
+            VALUES ('wing_imports', 'The Vault', 'Imported writing and notes', 99, ?1, ?1)
             "#,
             params![now],
         )
@@ -1309,7 +1530,7 @@ fn ensure_import_drawer(connection: &Connection) -> CommandResult<String> {
         .execute(
             r#"
             INSERT OR IGNORE INTO halls (id, wing_id, name, description, sort_order, created_at, updated_at)
-            VALUES ('hall_feed', 'wing_imports', 'Feed', 'Material brought into the Palace', 0, ?1, ?1)
+            VALUES ('hall_feed', 'wing_imports', 'Feed', 'Material brought into the Vault', 0, ?1, ?1)
             "#,
             params![now],
         )
@@ -1333,6 +1554,22 @@ fn ensure_import_drawer(connection: &Connection) -> CommandResult<String> {
         )
         .map_err(|error| format!("Could not prepare import drawer: {error}"))?;
     Ok("drawer_imported_text".to_string())
+}
+
+fn ensure_hierarchy_node(
+    connection: &Connection,
+    table: &str,
+    id: &str,
+    label: &str,
+) -> CommandResult<()> {
+    let query = format!("SELECT COUNT(*) FROM {table} WHERE id = ?1");
+    let count: i64 = connection
+        .query_row(&query, params![id], |row| row.get(0))
+        .map_err(|error| format!("Could not verify parent {label}: {error}"))?;
+    if count == 0 {
+        return Err(format!("Parent {label} not found."));
+    }
+    Ok(())
 }
 
 fn next_sort_order(
@@ -1449,7 +1686,7 @@ fn import_progress_labels() -> Vec<String> {
         "Reading the bones".to_string(),
         "Distilling word essence".to_string(),
         "Mapping canon traces".to_string(),
-        "Stocking the Palace".to_string(),
+        "Stocking the Vault".to_string(),
     ]
 }
 
@@ -1622,8 +1859,7 @@ fn provider_settings(
         &provider_setting_key(provider, "disclosureAcceptedAt"),
     )?;
     let api_key_present = if cloud_provider(&provider) {
-        get_setting(connection, &provider_setting_key(provider, "apiKeyPresent"))?
-            .as_deref()
+        get_setting(connection, &provider_setting_key(provider, "apiKeyPresent"))?.as_deref()
             == Some("true")
     } else {
         false
@@ -1655,10 +1891,7 @@ fn list_ollama_models(connection: &Connection) -> CommandResult<AiProviderModels
             });
             let model_names: Vec<String> = models.iter().map(|model| model.name.clone()).collect();
             let selected_model = select_ollama_model(previous, &model_names);
-            if let Some(model) = selected_model
-                .as_deref()
-                .filter(|_| model_names.len() == 1)
-            {
+            if let Some(model) = selected_model.as_deref().filter(|_| model_names.len() == 1) {
                 set_setting(
                     connection,
                     &provider_setting_key(AiProviderKind::Ollama, "selectedModel"),
@@ -1670,7 +1903,8 @@ fn list_ollama_models(connection: &Connection) -> CommandResult<AiProviderModels
             } else if selected_model.is_some() {
                 "Ollama model ready.".to_string()
             } else {
-                "Ollama found multiple local models. Choose one to enable Co-Writer requests.".to_string()
+                "Ollama found multiple local models. Choose one to enable Co-Writer requests."
+                    .to_string()
             };
 
             Ok(AiProviderModelsResponse {
@@ -1897,8 +2131,8 @@ fn chat_openai_compatible(
     }
     let response: Value = serde_json::from_str(&raw)
         .map_err(|error| format!("Could not parse cloud provider response: {error}"))?;
-    let text =
-        openai_chat_text(&response).ok_or("Cloud provider returned an empty response.".to_string())?;
+    let text = openai_chat_text(&response)
+        .ok_or("Cloud provider returned an empty response.".to_string())?;
     Ok(AiChatResponse {
         provider: request.provider,
         model: request.model.clone(),
@@ -1957,7 +2191,8 @@ fn chat_anthropic(
     }
     let response: Value = serde_json::from_str(&raw)
         .map_err(|error| format!("Could not parse Anthropic response: {error}"))?;
-    let text = anthropic_chat_text(&response).ok_or("Anthropic returned an empty response.".to_string())?;
+    let text = anthropic_chat_text(&response)
+        .ok_or("Anthropic returned an empty response.".to_string())?;
     Ok(AiChatResponse {
         provider: request.provider,
         model: request.model.clone(),
@@ -2020,8 +2255,8 @@ fn chat_google(connection: &Connection, request: &AiChatRequest) -> CommandResul
     }
     let response: Value = serde_json::from_str(&raw)
         .map_err(|error| format!("Could not parse Google AI Studio response: {error}"))?;
-    let text =
-        gemini_chat_text(&response).ok_or("Google AI Studio returned an empty response.".to_string())?;
+    let text = gemini_chat_text(&response)
+        .ok_or("Google AI Studio returned an empty response.".to_string())?;
     Ok(AiChatResponse {
         provider: request.provider,
         model: request.model.clone(),
@@ -2149,14 +2384,14 @@ where
 {
     let mut statement = connection
         .prepare(query)
-        .map_err(|error| format!("Could not prepare Palace tree query: {error}"))?;
+        .map_err(|error| format!("Could not prepare Vault tree query: {error}"))?;
     let mapped = statement
         .query_map(params, |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-        .map_err(|error| format!("Could not query Palace tree: {error}"))?;
+        .map_err(|error| format!("Could not query Vault tree: {error}"))?;
 
     let mut rows = Vec::new();
     for row in mapped {
-        rows.push(row.map_err(|error| format!("Could not read Palace tree row: {error}"))?);
+        rows.push(row.map_err(|error| format!("Could not read Vault tree row: {error}"))?);
     }
 
     Ok(rows)
