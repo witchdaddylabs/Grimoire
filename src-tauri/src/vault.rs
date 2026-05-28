@@ -1,10 +1,8 @@
-pub use crate::db::{
-    read_banned_words, read_vault_tree, scan_banned_words,
-};
-use crate::models::{VaultItemNode, VaultTreeResponse};
+pub use crate::db::read_vault_tree;
+pub use crate::db::{read_banned_words, scan_banned_words};
 use crate::db::{collect_named_rows, count_words};
-
-use crate::models::WardScanResponse;
+use crate::models::VaultItemNode;
+use crate::models::VaultTreeResponse;
 
 // Re-export with vault-specific naming
 pub fn vault_tree_response_from_db(

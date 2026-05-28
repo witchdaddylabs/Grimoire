@@ -1,9 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod ai;
+mod db;
+mod errors;
+mod llm;
 
 use ai::{
-    cloud_provider, AiApiKeyRequest, AiChatRequest, AiChatResponse, AiModelInfo, AiProviderKind,
+    cloud_provider, AiApiKeyRequest, AiChatRequest, AiChatResponse,
+    AiModelInfo, AiProviderKind,
     AiProviderModelsResponse, AiProviderSelectionRequest, AiProviderSettings,
     AiProviderSettingsResponse, AiProviderSettingsSaveRequest, CloudDisclosureAcceptRequest,
     CLOUD_DISCLOSURE_COPY, PROVIDERS,
@@ -26,267 +30,15 @@ const MAX_IMPORT_WORDS: i64 = 10_000;
 
 type CommandResult<T> = Result<T, String>;
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProjectCreateRequest {
-    name: String,
-    parent_dir: Option<String>,
-    seed_demo_data: Option<bool>,
-}
+// ── Modules ──
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct ProjectMetadata {
-    name: String,
-    app_version: String,
-    schema_version: i64,
-    project_path: String,
-    database_path: String,
-    created_at: String,
-    updated_at: String,
-}
+mod models;
+mod vault;
+mod wards;
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PalaceTreeResponse {
-    wings: Vec<PalaceWingNode>,
-    item_count: usize,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PalaceWingNode {
-    id: String,
-    name: String,
-    description: Option<String>,
-    halls: Vec<PalaceHallNode>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PalaceHallNode {
-    id: String,
-    name: String,
-    description: Option<String>,
-    rooms: Vec<PalaceRoomNode>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PalaceRoomNode {
-    id: String,
-    name: String,
-    description: Option<String>,
-    drawers: Vec<PalaceDrawerNode>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PalaceDrawerNode {
-    id: String,
-    name: String,
-    description: Option<String>,
-    items: Vec<PalaceItemNode>,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct PalaceItemNode {
-    id: String,
-    title: String,
-    item_type: String,
-    content: Option<String>,
-    word_count: i64,
-    path: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct PalaceItemDetail {
-    id: String,
-    title: String,
-    item_type: String,
-    content: String,
-    plain_text: String,
-    word_count: i64,
-    path: String,
-    updated_at: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ItemUpdateRequest {
-    project_path: String,
-    item_id: String,
-    title: String,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ImportTextRequest {
-    project_path: String,
-    title: String,
-    content: String,
-    source_name: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ItemArchiveRequest {
-    project_path: String,
-    item_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ItemDeleteRequest {
-    project_path: String,
-    item_id: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ImportTextResponse {
-    item: PalaceItemDetail,
-    progress_labels: Vec<String>,
-    created_chunks: usize,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SearchChunksRequest {
-    project_path: String,
-    query: String,
-    limit: Option<i64>,
-    mode: Option<String>,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct SearchChunkResult {
-    chunk_id: String,
-    item_id: String,
-    title: String,
-    item_type: String,
-    palace_path: String,
-    snippet: String,
-    score: f64,
-    confidence: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SearchChunksResponse {
-    query: String,
-    results: Vec<SearchChunkResult>,
-    confidence: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct BannedWord {
-    id: String,
-    value: String,
-    severity: String,
-    is_default: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WardPhraseRequest {
-    project_path: String,
-    value: String,
-    severity: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WardScanRequest {
-    project_path: String,
-    text: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct WardScanHit {
-    id: String,
-    value: String,
-    severity: String,
-    count: usize,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct WardScanResponse {
-    hits: Vec<WardScanHit>,
-    has_blocking_hits: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct OllamaModel {
-    name: String,
-    modified_at: Option<String>,
-    size: Option<i64>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct OllamaStatus {
-    base_url: String,
-    reachable: bool,
-    models: Vec<OllamaModel>,
-    selected_model: Option<String>,
-    message: String,
-}
-
-impl From<AiModelInfo> for OllamaModel {
-    fn from(model: AiModelInfo) -> Self {
-        Self {
-            name: model.name,
-            modified_at: model.modified_at,
-            size: model.size,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OllamaSelectModelRequest {
-    project_path: String,
-    model: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OllamaChatRequest {
-    project_path: String,
-    model: String,
-    prompt: String,
-    context: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct OllamaChatResponse {
-    model: String,
-    text: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ExportItemRequest {
-    project_path: String,
-    item_id: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ExportResponse {
-    path: String,
-    message: String,
-}
+use models::*;
+use vault::*;
+use wards::*;
 
 #[tauri::command]
 fn app_ping() -> &'static str {
@@ -336,7 +88,7 @@ fn db_init(project_path: String) -> CommandResult<ProjectMetadata> {
 }
 
 #[tauri::command]
-fn db_get_vault_tree(project_path: String) -> CommandResult<PalaceTreeResponse> {
+fn db_get_vault_tree(project_path: String) -> CommandResult<VaultTreeResponse> {
     let project_dir = validate_project_dir(PathBuf::from(project_path))?;
     let metadata = read_metadata(&project_dir)?;
     initialise_database(&metadata, false)?;
@@ -347,17 +99,17 @@ fn db_get_vault_tree(project_path: String) -> CommandResult<PalaceTreeResponse> 
         .execute_batch("PRAGMA foreign_keys = ON;")
         .map_err(|error| format!("Could not enable SQLite foreign keys: {error}"))?;
 
-    read_palace_tree(&connection)
+    read_vault_tree(&connection)
 }
 
 #[tauri::command]
-fn db_get_item(project_path: String, item_id: String) -> CommandResult<PalaceItemDetail> {
+fn db_get_item(project_path: String, item_id: String) -> CommandResult<VaultItemDetail> {
     let connection = open_project_database(&project_path)?;
     read_item_detail(&connection, &item_id)
 }
 
 #[tauri::command]
-fn db_update_item(request: ItemUpdateRequest) -> CommandResult<PalaceItemDetail> {
+fn db_update_item(request: ItemUpdateRequest) -> CommandResult<VaultItemDetail> {
     let connection = open_project_database(&request.project_path)?;
     let title = request.title.trim();
     if title.is_empty() {
@@ -386,7 +138,7 @@ fn db_update_item(request: ItemUpdateRequest) -> CommandResult<PalaceItemDetail>
         .map_err(|error| format!("Could not update Canvas item: {error}"))?;
 
     if connection.changes() == 0 {
-        return Err("Could not find that Palace item.".to_string());
+        return Err("Could not find that Vault item.".to_string());
     }
 
     let path = item_path(&connection, &request.item_id, title)?;
@@ -456,7 +208,7 @@ fn db_import_text(request: ImportTextRequest) -> CommandResult<ImportTextRespons
                 now
             ],
         )
-        .map_err(|error| format!("Could not create imported Palace item: {error}"))?;
+        .map_err(|error| format!("Could not create imported Vault item: {error}"))?;
 
     let path = item_path(&connection, &item_id, &title)?;
     let created_chunks = sync_item_chunks(&connection, &item_id, &title, "note", &path, &content)?;
@@ -470,7 +222,7 @@ fn db_import_text(request: ImportTextRequest) -> CommandResult<ImportTextRespons
 }
 
 #[tauri::command]
-fn db_archive_item(request: ItemArchiveRequest) -> CommandResult<PalaceTreeResponse> {
+fn db_archive_item(request: ItemArchiveRequest) -> CommandResult<VaultTreeResponse> {
     let connection = open_project_database(&request.project_path)?;
     clear_item_chunks(&connection, &request.item_id)?;
 
@@ -479,29 +231,29 @@ fn db_archive_item(request: ItemArchiveRequest) -> CommandResult<PalaceTreeRespo
             "UPDATE items SET archived_at = ?1, updated_at = ?1 WHERE id = ?2 AND archived_at IS NULL",
             params![timestamp(), request.item_id],
         )
-        .map_err(|error| format!("Could not archive Palace item: {error}"))?;
+        .map_err(|error| format!("Could not archive Vault item: {error}"))?;
 
     if connection.changes() == 0 {
-        return Err("Could not find that active Palace item to archive.".to_string());
+        return Err("Could not find that active Vault item to archive.".to_string());
     }
 
-    read_palace_tree(&connection)
+    read_vault_tree(&connection)
 }
 
 #[tauri::command]
-fn db_delete_item(request: ItemDeleteRequest) -> CommandResult<PalaceTreeResponse> {
+fn db_delete_item(request: ItemDeleteRequest) -> CommandResult<VaultTreeResponse> {
     let connection = open_project_database(&request.project_path)?;
     clear_item_chunks(&connection, &request.item_id)?;
 
     connection
         .execute("DELETE FROM items WHERE id = ?1", params![request.item_id])
-        .map_err(|error| format!("Could not delete Palace item: {error}"))?;
+        .map_err(|error| format!("Could not delete Vault item: {error}"))?;
 
     if connection.changes() == 0 {
-        return Err("Could not find that Palace item to delete.".to_string());
+        return Err("Could not find that Vault item to delete.".to_string());
     }
 
-    read_palace_tree(&connection)
+    read_vault_tree(&connection)
 }
 
 #[tauri::command]
@@ -522,7 +274,7 @@ fn db_search_chunks(request: SearchChunksRequest) -> CommandResult<SearchChunksR
               item_id,
               title,
               item_type,
-              palace_path,
+              vault_path,
               text,
               bm25(item_chunks_fts) AS rank
             FROM item_chunks_fts
@@ -531,7 +283,7 @@ fn db_search_chunks(request: SearchChunksRequest) -> CommandResult<SearchChunksR
             LIMIT ?2
             "#,
         )
-        .map_err(|error| format!("Could not prepare Palace search: {error}"))?;
+        .map_err(|error| format!("Could not prepare Vault search: {error}"))?;
 
     let mapped = statement
         .query_map(params![fts_query, limit], |row| {
@@ -542,7 +294,7 @@ fn db_search_chunks(request: SearchChunksRequest) -> CommandResult<SearchChunksR
                 item_id: row.get(1)?,
                 title: row.get(2)?,
                 item_type: row.get(3)?,
-                palace_path: row.get(4)?,
+                vault_path: row.get(4)?,
                 snippet: row.get(5)?,
                 score,
                 confidence: confidence_for_score(score),
@@ -846,7 +598,7 @@ fn export_project_json(project_path: String) -> CommandResult<ExportResponse> {
     let project_dir = validate_project_dir(PathBuf::from(&project_path))?;
     let metadata = read_metadata(&project_dir)?;
     let connection = open_project_database(&project_path)?;
-    let tree = read_palace_tree(&connection)?;
+    let tree = read_vault_tree(&connection)?;
     let wards = read_banned_words(&connection)?;
     let export_dir = project_dir.join("exports");
     fs::create_dir_all(&export_dir)
@@ -859,7 +611,7 @@ fn export_project_json(project_path: String) -> CommandResult<ExportResponse> {
             "schemaVersion": metadata.schema_version,
             "projectPath": metadata.project_path
         },
-        "palace": tree,
+        "vault": tree,
         "wards": wards
     });
     let raw = serde_json::to_string_pretty(&payload)
@@ -1043,7 +795,7 @@ fn initialise_database(metadata: &ProjectMetadata, seed_demo_data: bool) -> Comm
     seed_default_banned_words(&connection)?;
 
     if seed_demo_data {
-        seed_palace_demo_data(&mut connection)?;
+        seed_vault_demo_data(&mut connection)?;
     }
 
     Ok(())
@@ -1149,7 +901,7 @@ fn upsert_project_metadata(
     Ok(())
 }
 
-fn seed_palace_demo_data(connection: &mut Connection) -> CommandResult<()> {
+fn seed_vault_demo_data(connection: &mut Connection) -> CommandResult<()> {
     let existing_wings: i64 = connection
         .query_row("SELECT COUNT(*) FROM wings", [], |row| row.get(0))
         .map_err(|error| format!("Could not inspect Palace seed data: {error}"))?;
@@ -1252,7 +1004,7 @@ fn seed_palace_demo_data(connection: &mut Connection) -> CommandResult<()> {
         ),
     ];
 
-    for (id, drawer_id, title, item_type, content, palace_path, sort_order) in items {
+    for (id, drawer_id, title, item_type, content, vault_path, sort_order) in items {
         let word_count = count_words(content);
         transaction
             .execute(
@@ -1285,11 +1037,11 @@ fn seed_palace_demo_data(connection: &mut Connection) -> CommandResult<()> {
             .execute(
                 r#"
                 INSERT INTO item_chunks_fts (
-                  chunk_id, item_id, title, item_type, palace_path, text
+                  chunk_id, item_id, title, item_type, vault_path, text
                 )
                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                 "#,
-                params![chunk_id, id, title, item_type, palace_path, content],
+                params![chunk_id, id, title, item_type, vault_path, content],
             )
             .map_err(|error| format!("Could not seed demo search index: {error}"))?;
     }
@@ -1305,7 +1057,7 @@ fn count_words(text: &str) -> i64 {
     text.split_whitespace().count() as i64
 }
 
-fn read_palace_tree(connection: &Connection) -> CommandResult<PalaceTreeResponse> {
+fn read_vault_tree(connection: &Connection) -> CommandResult<VaultTreeResponse> {
     let wing_rows = collect_named_rows(
         connection,
         "SELECT id, name, description FROM wings ORDER BY sort_order, name",
@@ -1317,7 +1069,7 @@ fn read_palace_tree(connection: &Connection) -> CommandResult<PalaceTreeResponse
 
     for (wing_id, wing_name, wing_description) in wing_rows {
         let halls = read_halls(connection, &wing_id, &wing_name, &mut item_count)?;
-        wings.push(PalaceWingNode {
+        wings.push(VaultWingNode {
             id: wing_id,
             name: wing_name,
             description: wing_description,
@@ -1325,7 +1077,7 @@ fn read_palace_tree(connection: &Connection) -> CommandResult<PalaceTreeResponse
         });
     }
 
-    Ok(PalaceTreeResponse { wings, item_count })
+    Ok(VaultTreeResponse { wings, item_count })
 }
 
 fn read_halls(
@@ -1333,7 +1085,7 @@ fn read_halls(
     wing_id: &str,
     wing_name: &str,
     item_count: &mut usize,
-) -> CommandResult<Vec<PalaceHallNode>> {
+) -> CommandResult<Vec<VaultHallNode>> {
     let hall_rows = collect_named_rows(
         connection,
         "SELECT id, name, description FROM halls WHERE wing_id = ?1 ORDER BY sort_order, name",
@@ -1343,7 +1095,7 @@ fn read_halls(
     let mut halls = Vec::new();
     for (hall_id, hall_name, hall_description) in hall_rows {
         let rooms = read_rooms(connection, &hall_id, wing_name, &hall_name, item_count)?;
-        halls.push(PalaceHallNode {
+        halls.push(VaultHallNode {
             id: hall_id,
             name: hall_name,
             description: hall_description,
@@ -1360,7 +1112,7 @@ fn read_rooms(
     wing_name: &str,
     hall_name: &str,
     item_count: &mut usize,
-) -> CommandResult<Vec<PalaceRoomNode>> {
+) -> CommandResult<Vec<VaultRoomNode>> {
     let room_rows = collect_named_rows(
         connection,
         "SELECT id, name, description FROM rooms WHERE hall_id = ?1 ORDER BY sort_order, name",
@@ -1372,7 +1124,7 @@ fn read_rooms(
         let drawers = read_drawers(
             connection, &room_id, wing_name, hall_name, &room_name, item_count,
         )?;
-        rooms.push(PalaceRoomNode {
+        rooms.push(VaultRoomNode {
             id: room_id,
             name: room_name,
             description: room_description,
@@ -1390,7 +1142,7 @@ fn read_drawers(
     hall_name: &str,
     room_name: &str,
     item_count: &mut usize,
-) -> CommandResult<Vec<PalaceDrawerNode>> {
+) -> CommandResult<Vec<VaultDrawerNode>> {
     let drawer_rows = collect_named_rows(
         connection,
         "SELECT id, name, description FROM drawers WHERE room_id = ?1 ORDER BY sort_order, name",
@@ -1408,7 +1160,7 @@ fn read_drawers(
             &drawer_name,
         )?;
         *item_count += items.len();
-        drawers.push(PalaceDrawerNode {
+        drawers.push(VaultDrawerNode {
             id: drawer_id,
             name: drawer_name,
             description: drawer_description,
@@ -1426,7 +1178,7 @@ fn read_items(
     hall_name: &str,
     room_name: &str,
     drawer_name: &str,
-) -> CommandResult<Vec<PalaceItemNode>> {
+) -> CommandResult<Vec<VaultItemNode>> {
     let mut statement = connection
         .prepare(
             r#"
@@ -1442,7 +1194,7 @@ fn read_items(
     let mapped = statement
         .query_map(params![drawer_id], |row| {
             let title: String = row.get(1)?;
-            Ok(PalaceItemNode {
+            Ok(VaultItemNode {
                 id: row.get(0)?,
                 path: format!("{wing_name} / {hall_name} / {room_name} / {drawer_name} / {title}"),
                 title,
@@ -1451,17 +1203,17 @@ fn read_items(
                 word_count: row.get(4)?,
             })
         })
-        .map_err(|error| format!("Could not query Palace items: {error}"))?;
+        .map_err(|error| format!("Could not query Vault items: {error}"))?;
 
     let mut items = Vec::new();
     for item in mapped {
-        items.push(item.map_err(|error| format!("Could not read Palace item: {error}"))?);
+        items.push(item.map_err(|error| format!("Could not read Vault item: {error}"))?);
     }
 
     Ok(items)
 }
 
-fn read_item_detail(connection: &Connection, item_id: &str) -> CommandResult<PalaceItemDetail> {
+fn read_item_detail(connection: &Connection, item_id: &str) -> CommandResult<VaultItemDetail> {
     connection
         .query_row(
             r#"
@@ -1492,7 +1244,7 @@ fn read_item_detail(connection: &Connection, item_id: &str) -> CommandResult<Pal
                 let hall: String = row.get(8)?;
                 let room: String = row.get(9)?;
                 let drawer: String = row.get(10)?;
-                Ok(PalaceItemDetail {
+                Ok(VaultItemDetail {
                     id: row.get(0)?,
                     title: title.clone(),
                     item_type: row.get(2)?,
@@ -1617,7 +1369,7 @@ fn sync_item_chunks(
     item_id: &str,
     title: &str,
     item_type: &str,
-    palace_path: &str,
+    vault_path: &str,
     text: &str,
 ) -> CommandResult<usize> {
     clear_item_chunks(connection, item_id)?;
@@ -1648,11 +1400,11 @@ fn sync_item_chunks(
             .execute(
                 r#"
                 INSERT INTO item_chunks_fts (
-                  chunk_id, item_id, title, item_type, palace_path, text
+                  chunk_id, item_id, title, item_type, vault_path, text
                 )
                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                 "#,
-                params![chunk_id, item_id, title, item_type, palace_path, chunk],
+                params![chunk_id, item_id, title, item_type, vault_path, chunk],
             )
             .map_err(|error| format!("Could not update search index: {error}"))?;
     }
@@ -1718,7 +1470,7 @@ fn fts_query(query: &str) -> CommandResult<String> {
 fn fts_query_broad(query: &str) -> CommandResult<String> {
     let filtered = search_tokens(query)
         .into_iter()
-        .filter(|token| !palace_recall_stopword(token))
+        .filter(|token| !vault_recall_stopword(token))
         .collect::<Vec<_>>();
     let tokens = if filtered.is_empty() {
         search_tokens(query)
@@ -1756,7 +1508,7 @@ fn search_tokens(query: &str) -> Vec<String> {
     tokens
 }
 
-fn palace_recall_stopword(token: &str) -> bool {
+fn vault_recall_stopword(token: &str) -> bool {
     matches!(
         token,
         "a" | "an"
@@ -1825,81 +1577,6 @@ fn aggregate_confidence(results: &[SearchChunkResult]) -> String {
         .first()
         .map(|result| result.confidence.clone())
         .unwrap_or_else(|| "none".to_string())
-}
-
-fn seed_default_banned_words(connection: &Connection) -> CommandResult<()> {
-    let defaults = [
-        ("ward_default_very", "very", "warn"),
-        ("ward_default_really", "really", "warn"),
-        ("ward_default_suddenly", "suddenly", "warn"),
-        ("ward_default_somehow", "somehow", "warn"),
-        ("ward_default_actually", "actually", "warn"),
-        ("ward_default_utilize", "utilize", "warn"),
-        ("ward_default_delve", "delve", "warn"),
-        ("ward_default_tapestry", "tapestry", "warn"),
-    ];
-    let now = timestamp();
-    for (id, value, severity) in defaults {
-        connection
-            .execute(
-                r#"
-                INSERT OR IGNORE INTO banned_words
-                  (id, value, severity, is_default, created_at, updated_at)
-                VALUES (?1, ?2, ?3, 1, ?4, ?4)
-                "#,
-                params![id, value, severity, now],
-            )
-            .map_err(|error| format!("Could not seed default ward phrase: {error}"))?;
-    }
-    Ok(())
-}
-
-fn read_banned_words(connection: &Connection) -> CommandResult<Vec<BannedWord>> {
-    let mut statement = connection
-        .prepare("SELECT id, value, severity, is_default FROM banned_words ORDER BY is_default DESC, value")
-        .map_err(|error| format!("Could not prepare ward list: {error}"))?;
-    let mapped = statement
-        .query_map([], |row| {
-            let is_default: i64 = row.get(3)?;
-            Ok(BannedWord {
-                id: row.get(0)?,
-                value: row.get(1)?,
-                severity: row.get(2)?,
-                is_default: is_default == 1,
-            })
-        })
-        .map_err(|error| format!("Could not query ward list: {error}"))?;
-    let mut words = Vec::new();
-    for word in mapped {
-        words.push(word.map_err(|error| format!("Could not read ward phrase: {error}"))?);
-    }
-    Ok(words)
-}
-
-fn scan_wards(words: &[BannedWord], text: &str) -> WardScanResponse {
-    let lower_text = text.to_lowercase();
-    let mut hits = Vec::new();
-    for word in words {
-        let needle = word.value.to_lowercase();
-        if needle.is_empty() {
-            continue;
-        }
-        let count = lower_text.matches(&needle).count();
-        if count > 0 {
-            hits.push(WardScanHit {
-                id: word.id.clone(),
-                value: word.value.clone(),
-                severity: word.severity.clone(),
-                count,
-            });
-        }
-    }
-
-    let has_blocking_hits = hits.iter().any(|hit| hit.severity == "block");
-    WardScanResponse {
-        hits,
-        has_blocking_hits,
-    }
 }
 
 fn get_setting(connection: &Connection, key: &str) -> CommandResult<Option<String>> {
@@ -2810,7 +2487,7 @@ USING fts5(
   item_id,
   title,
   item_type,
-  palace_path,
+  vault_path,
   text
 );
 
