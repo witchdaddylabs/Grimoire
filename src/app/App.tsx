@@ -83,6 +83,12 @@ import {
 } from "./vault";
 import { compactPath, createProject, createDemoProject, openProject, recordRecentProject, removeRecentProject, getRecentProjects, describeError, type ProjectMetadata, type RecentProject } from "./project";
 import { open } from "@tauri-apps/plugin-dialog";
+import { VaultPanel } from "../features/vault/VaultPanel";
+import { CanvasPanel } from "../features/canvas/CanvasPanel";
+import { CoWriterPanel } from "../features/cowriter/CoWriterPanel";
+import { OnboardingOverlay } from "../components/OnboardingOverlay";
+import { CloudDisclosureDialog } from "../components/CloudDisclosureDialog";
+import { StatusChip, saveStateTone, saveStateLabel } from "../components/ui/StatusChip";
 
 type TauriState = "checking" | "awake" | "browser";
 type SaveState = "idle" | "editing" | "saving" | "saved" | "failed" | "preview";
@@ -1368,469 +1374,109 @@ export function App() {
       ) : (
 
       <section className="workspace" aria-label="Grimoire workspace">
-        <aside className="panel vault-panel" aria-label="The Vault">
-          {workspacePrefs.leftCollapsed ? (
-            <CollapsedRail
-              icon={<Database size={18} aria-hidden="true" />}
-              label="Open Vault"
-              onExpand={() => setSideCollapsed("left", false)}
-              side="left"
-            />
-          ) : (
-            <>
-              <PanelHeader
-                action={
-                  <button
-                    className="icon-button panel-collapse-button"
-                    type="button"
-                    aria-label="Collapse Vault"
-                    onClick={() => setSideCollapsed("left", true)}
-                    title="Collapse Vault"
-                  >
-                    <ChevronLeft size={16} aria-hidden="true" />
-                  </button>
-                }
-                icon={<Database size={17} aria-hidden="true" />}
-                title="The Vault"
-                subtitle={project ? "SQLite project ready" : "Wings / Halls / Rooms / Drawers"}
-              />
+        <VaultPanel
+          tree={vaultTree}
+          project={project}
+          projectError={projectError}
+          projectLoading={projectLoading}
+          tauriState={tauriState}
+          searchQuery={searchQuery}
+          searchResults={searchResults}
+          searchError={searchError}
+          activeItem={activeItem}
+          expandedNodeIds={expandedNodeIds}
+          leftCollapsed={workspacePrefs.leftCollapsed}
+          onSearchChange={setSearchQuery}
+          onSearch={handleSearch}
+          onSearchClear={() => { setSearchResults([]); setSearchQuery(""); }}
+          onToggle={toggleNode}
+          onSelectItem={setActiveItemId}
+          onArchiveItem={handleArchiveItem}
+          onDeleteItem={() => handleDeleteItem()}
+          onExpandLeft={() => setSideCollapsed("left", false)}
+          onCollapseLeft={() => setSideCollapsed("left", true)}
+          compactPath={compactPath}
+        />
 
-              <div className="panel-scroll vault-scroll">
-                <div className={projectError ? "project-card warning" : "project-card"}>
-                  <span>
-                    {project
-                      ? "Local project"
-                      : projectLoading
-                        ? "Project storage"
-                        : tauriState === "browser"
-                          ? "Browser preview"
-                          : "Project storage"}
-                  </span>
-                  <strong>{project ? project.name : projectLoading ? "Preparing SQLite" : "Static demo"}</strong>
-                  <small>
-                    {project
-                      ? `${compactPath(project.projectPath)} - ${vaultTree.itemCount} items`
-                      : treeError ?? projectError ?? "The desktop shell will create a .grimoire folder here."}
-                  </small>
-                </div>
+        <CanvasPanel
+          activeItem={activeItem}
+          editorTitle={editorTitle}
+          editorContent={editorContent}
+          editorWordCount={editorWordCount}
+          saveState={saveState}
+          saveError={saveError}
+          exportState={exportState}
+          exportStatus={exportStatus}
+          onTitleChange={setEditorTitle}
+          onContentChange={setEditorContent}
+          onExportItem={handleExportItem}
+          onExportProject={handleExportProject}
+          onArchiveItem={() => handleArchiveItem(activeItemId)}
+          onDeleteItem={() => handleDeleteItem()}
+        />
 
-                <form className="vault-search" onSubmit={handleSearch}>
-                  <Search size={15} aria-hidden="true" />
-                  <input
-                    type="search"
-                    placeholder="Search Vault"
-                    aria-label="Search Vault"
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                  />
-                </form>
-
-                {searchQuery && searchState === "success" ? (
-                  <div className="search-summary">
-                    <strong>{searchResults.length ? `${searchResults.length} local matches` : "No local matches"}</strong>
-                    <button className="text-button" type="button" onClick={() => setSearchResults([])}>
-                      Clear
-                    </button>
-                  </div>
-                ) : null}
-                {searchError ? <p className="inline-error">{searchError}</p> : null}
-
-                <VaultTree
-                  tree={vaultTree}
-                  activeItemId={activeItem?.id ?? ""}
-                  expandedNodeIds={expandedNodeIds}
-                  onArchiveItem={handleArchiveItem}
-                  onToggle={toggleNode}
-                  onSelectItem={setActiveItemId}
-                />
-              </div>
-            </>
-          )}
-        </aside>
-
-        <article className="canvas-panel" aria-label="Canvas">
-          <div className="canvas-toolbar">
-            <div>
-              <p className="eyebrow">The Canvas</p>
-              <p className="path-label">{activeItem?.path ?? "The Vault"}</p>
-            </div>
-            <div className="canvas-stats" aria-live="polite">
-              <span>{editorWordCount} words</span>
-              <span className={`save-pill ${saveState}`}>{saveStateLabel(saveState)}</span>
-            </div>
-          </div>
-
-          <label className="sr-only" htmlFor="canvas-title">
-            Canvas title
-          </label>
-          <input
-            id="canvas-title"
-            className="title-input"
-            value={editorTitle}
-            onChange={(event) => {
-              setEditorTitle(event.target.value);
-              markEditorChanged();
-            }}
-            spellCheck
-          />
-
-          <label className="sr-only" htmlFor="canvas-editor">
-            Canvas editor
-          </label>
-          <textarea
-            id="canvas-editor"
-            className="editor-surface editor-textarea"
-            value={editorContent}
-            onChange={(event) => {
-              setEditorContent(event.target.value);
-              markEditorChanged();
-            }}
-            placeholder="Create your first Wing or import writing to begin."
-            spellCheck
-          />
-
-          {saveError ? <p className="inline-error">{saveError}</p> : null}
-
-          <div className="canvas-actions">
-            <button className="button button-secondary" type="button" onClick={handleExportItem}>
-              <FileText size={16} aria-hidden="true" />
-              Export Markdown
-            </button>
-            <button className="button button-secondary" type="button" onClick={handleExportProject}>
-              <Download size={16} aria-hidden="true" />
-              Export Project
-            </button>
-            <button className="button button-secondary" type="button" onClick={() => handleArchiveItem()}>
-              <Archive size={16} aria-hidden="true" />
-              Safe Remove
-            </button>
-            <button className="button button-danger" type="button" onClick={() => handleDeleteItem()}>
-              <Trash2 size={16} aria-hidden="true" />
-              Delete Item
-            </button>
-            <span className={`operation-status ${exportState}`}>{exportStatus}</span>
-          </div>
-        </article>
-
-        <aside className="panel cowriter-panel" aria-label="The Co-Writer">
-          {workspacePrefs.rightCollapsed ? (
-            <CollapsedRail
-              icon={<BrainCircuit size={18} aria-hidden="true" />}
-              label="Open Co-Writer"
-              onExpand={() => setSideCollapsed("right", false)}
-              side="right"
-            />
-          ) : (
-            <>
-              <PanelHeader
-                action={
-                  <button
-                    className="icon-button panel-collapse-button"
-                    type="button"
-                    aria-label="Collapse Co-Writer"
-                    onClick={() => setSideCollapsed("right", true)}
-                    title="Collapse Co-Writer"
-                  >
-                    <ChevronRight size={16} aria-hidden="true" />
-                  </button>
-                }
-                icon={<BrainCircuit size={17} aria-hidden="true" />}
-                title="The Co-Writer"
-                subtitle={`${providerLabels[activeProvider]}${selectedModel ? ` / ${selectedModel}` : " / choose model"}`}
-              />
-
-              <div className="panel-scroll tools-scroll">
-
-          <ToolAccordion
-            id="feed"
-            icon={<Upload size={15} />}
-            open={openToolSectionSet.has("feed")}
-            title="Feed"
-            onToggle={toggleToolSection}
-          >
-            <form className="tool-form" onSubmit={handlePasteImport}>
-              <input
-                className="compact-input"
-                value={importTitle}
-                onChange={(event) => setImportTitle(event.target.value)}
-                placeholder="Import title"
-              />
-              <textarea
-                className="compact-textarea"
-                value={importBody}
-                onChange={(event) => setImportBody(event.target.value)}
-                placeholder={`Paste text or Markdown, up to ${IMPORT_WORD_LIMIT.toLocaleString()} words`}
-              />
-              <p className="tool-hint">
-                Import multiple `.md`, `.markdown`, or `.txt` files. Each file is capped at{" "}
-                {IMPORT_WORD_LIMIT.toLocaleString()} words; add more chunks later if needed.
-              </p>
-              <div className="inline-actions">
-                <button className="button button-primary" type="submit" disabled={importState === "working"}>
-                  {importState === "working" ? <Loader2 size={16} /> : <Clipboard size={16} />}
-                  Import Paste
-                </button>
-                <label className="file-button">
-                  <FileText size={16} aria-hidden="true" />
-                  Files
-                  <input
-                    type="file"
-                    accept=".txt,.md,.markdown,text/plain,text/markdown"
-                    multiple
-                    onChange={(event) => handleFileImport(event.currentTarget.files)}
-                  />
-                </label>
-              </div>
-            </form>
-            <ProgressList labels={importProgress} />
-            <p className={`operation-status ${importState}`}>{importStatus}</p>
-          </ToolAccordion>
-
-          <ToolAccordion
-            id="retrieval"
-            icon={<Search size={15} />}
-            open={openToolSectionSet.has("retrieval")}
-            title="Retrieval"
-            onToggle={toggleToolSection}
-          >
-            <div className="retrieval-card" role="status" aria-live="polite">
-              {retrievalLabels(cowriterState, cowriterStatus).map((step, index) => (
-                <p key={`${step}-${index}`} className={index === 0 ? "active-step" : undefined}>
-                  <Sparkles size={14} aria-hidden="true" />
-                  {step}
-                </p>
-              ))}
-            </div>
-            <ResultList results={searchResults.length ? searchResults : retrievalResults} onSelect={setActiveItemId} />
-          </ToolAccordion>
-
-          <ToolAccordion
-            id="engine"
-            icon={<WandSparkles size={15} />}
-            open={openToolSectionSet.has("engine")}
-            title="Engine"
-            onToggle={toggleToolSection}
-          >
-            <div className="engine-row">
-              <button className="button button-secondary" type="button" onClick={refreshEngine}>
-                {engineState === "working" ? <Loader2 size={16} /> : <BrainCircuit size={16} />}
-                Refresh Models
-              </button>
-              <button className="button button-secondary" type="button" onClick={handleProviderTest}>
-                <Sparkles size={16} />
-                Test Provider
-              </button>
-              <span className={providerReady(activeProvider, activeProviderSettings, providerModels) ? "engine-dot online" : "engine-dot"} />
-            </div>
-            <div className="provider-grid" role="radiogroup" aria-label="AI provider">
-              {AI_PROVIDERS.map((provider) => (
-                <button
-                  key={provider}
-                  className={provider === activeProvider ? "provider-button active" : "provider-button"}
-                  type="button"
-                  role="radio"
-                  aria-checked={provider === activeProvider}
-                  onClick={() => handleProviderSelection(provider)}
-                >
-                  <span>{providerLabels[provider]}</span>
-                  <small>{cloudProvider(provider) ? "BYOK cloud" : "Local"}</small>
-                </button>
-              ))}
-            </div>
-            <p className={`operation-status ${engineState}`}>{engineStatus}</p>
-            {engineError ? <p className="inline-error compact-error">{engineError}</p> : null}
-            {modelOptions.length ? (
-              <select
-                className="compact-input"
-                value={modelDraft}
-                onChange={(event) => setModelDraft(event.target.value)}
-              >
-                <option value="" disabled>
-                  Choose model
-                </option>
-                {modelOptions.map((model) => (
-                  <option key={model} value={model}>
-                    {model}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-            {activeProviderIsCloud ? (
-              <div className="cloud-settings">
-                <div className="key-status">
-                  <span className={activeProviderSettings?.apiKeyPresent ? "engine-dot online" : "engine-dot"} />
-                  {activeProviderSettings?.apiKeyPresent ? "API key saved" : "No API key saved"}
-                </div>
-                <p className="tool-hint">
-                  macOS may ask for Keychain permission because Grimoire stores API keys there instead of inside your
-                  project files. You should only see this when saving, deleting, or using a saved key.
-                </p>
-                <form className="tool-form" onSubmit={handleApiKeySave}>
-                  <input
-                    className="compact-input"
-                    type="password"
-                    autoComplete="off"
-                    value={apiKeyDraft}
-                    onChange={(event) => setApiKeyDraft(event.target.value)}
-                    placeholder={`Paste ${providerLabels[activeProvider]} API key`}
-                  />
-                  <div className="inline-actions">
-                    <button className="button button-primary" type="submit" disabled={!apiKeyDraft.trim()}>
-                      <ShieldCheck size={16} />
-                      Save Key
-                    </button>
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      disabled={!activeProviderSettings?.apiKeyPresent}
-                      onClick={handleApiKeyDelete}
-                    >
-                      <Trash2 size={16} />
-                      Delete Key
-                    </button>
-                  </div>
-                </form>
-                {activeProvider === "openAiCompatible" ? (
-                  <input
-                    className="compact-input"
-                    value={baseUrlDraft}
-                    onChange={(event) => setBaseUrlDraft(event.target.value)}
-                    placeholder="Base URL, e.g. https://api.example.com"
-                  />
-                ) : null}
-              </div>
-            ) : null}
-            <form className="tool-form" onSubmit={handleEngineSettingsSave}>
-              <input
-                className="compact-input"
-                value={modelDraft}
-                onChange={(event) => setModelDraft(event.target.value)}
-                placeholder={activeProvider === "ollama" ? "Choose a detected local model" : "Model ID"}
-              />
-              <button className="button button-secondary full-width" type="submit">
-                <Check size={16} />
-                Save Engine Settings
-              </button>
-            </form>
-          </ToolAccordion>
-
-          <ToolAccordion
-            id="cowriter"
-            icon={<BrainCircuit size={15} />}
-            open={openToolSectionSet.has("cowriter")}
-            title="Co-Writer"
-            onToggle={toggleToolSection}
-          >
-            <textarea
-              className="compact-textarea"
-              value={cowriterPrompt}
-              onChange={(event) => setCowriterPrompt(event.target.value)}
-              placeholder="Ask a grounded question across the Vault"
-            />
-            <p className="tool-hint">
-              Searches the whole Vault first, then uses the active Canvas as extra context when it helps.
-            </p>
-            <button className="button button-primary full-width" type="button" onClick={() => runCowriter()}>
-              {cowriterState === "working" ? <Loader2 size={16} /> : <Sparkles size={16} />}
-              Ask Co-Writer
-            </button>
-            {cowriterError ? <p className="inline-error">{cowriterError}</p> : null}
-            {cowriterAnswer ? (
-              <div className="answer-card">
-                <p>{cowriterAnswer}</p>
-                <CitationList results={retrievalResults} />
-                <WardWarnings hits={answerWardHits} />
-                <div className="inline-actions">
-                  <button className="button button-secondary" type="button" onClick={insertCowriterAnswer}>
-                    <Check size={16} />
-                    {answerWardHits.length ? "Insert Anyway" : "Insert"}
-                  </button>
-                  <button className="icon-button" type="button" aria-label="Copy answer" onClick={copyCowriterAnswer}>
-                    <Copy size={16} />
-                  </button>
-                  <button
-                    className="icon-button"
-                    type="button"
-                    aria-label="Rewrite clean"
-                    onClick={() => runCowriter("Rewrite cleanly and avoid every warded phrase.")}
-                  >
-                    <WandSparkles size={16} />
-                  </button>
-                  <button
-                    className="icon-button"
-                    type="button"
-                    aria-label="Discard answer"
-                    onClick={() => {
-                      setCowriterAnswer("");
-                      setAnswerWardHits([]);
-                    }}
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </ToolAccordion>
-
-          <ToolAccordion
-            id="wards"
-            icon={<ShieldCheck size={15} />}
-            open={openToolSectionSet.has("wards")}
-            title="Wards"
-            onToggle={toggleToolSection}
-          >
-            <form className="ward-form" onSubmit={handleWardAdd}>
-              <input
-                className="compact-input"
-                value={wardInput}
-                onChange={(event) => setWardInput(event.target.value)}
-                placeholder="Phrase to warn on"
-              />
-              <select
-                className="compact-input severity-select"
-                value={wardSeverity}
-                onChange={(event) => setWardSeverity(event.target.value as WardSeverity)}
-              >
-                <option value="warn">Warn</option>
-                <option value="block">Block</option>
-              </select>
-              <button className="icon-button" type="submit" aria-label="Add ward phrase">
-                <Plus size={16} />
-              </button>
-            </form>
-            <div className="ward-list">
-              {wards.slice(0, 10).map((ward) => (
-                <span key={ward.id} className="ward-token">
-                  {ward.value}
-                  <small>{ward.severity}</small>
-                  {!ward.isDefault ? (
-                    <button type="button" aria-label={`Remove ${ward.value}`} onClick={() => handleWardRemove(ward.id)}>
-                      <Trash2 size={12} />
-                    </button>
-                  ) : null}
-                </span>
-              ))}
-            </div>
-            <p className={`operation-status ${wardState}`}>{wardStatus}</p>
-          </ToolAccordion>
-
-          <ToolAccordion
-            id="about"
-            icon={<Info size={15} />}
-            open={openToolSectionSet.has("about")}
-            title="About"
-            onToggle={toggleToolSection}
-          >
-            <p>
-              Grimoire is an independent Witch Daddy Labs project. The Vault memory
-              model is inspired by the MIT-licensed MemPalace project; Grimoire is not
-              affiliated with MemPalace.
-            </p>
-          </ToolAccordion>
-              </div>
-            </>
-          )}
-        </aside>
+        <CoWriterPanel
+          rightCollapsed={workspacePrefs.rightCollapsed}
+          activeProvider={activeProvider}
+          selectedModel={selectedModel}
+          providerLabels={providerLabels}
+          providerModels={providerModels}
+          activeProviderSettings={activeProviderSettings}
+          activeProviderIsCloud={activeProviderIsCloud}
+          openToolSectionSet={openToolSectionSet}
+          importTitle={importTitle}
+          importBody={importBody}
+          importState={importState}
+          importStatus={importStatus}
+          importProgress={importProgress}
+          engineState={engineState}
+          engineStatus={engineStatus}
+          engineError={engineError}
+          modelDraft={modelDraft}
+          modelOptions={modelOptions}
+          apiKeyDraft={apiKeyDraft}
+          baseUrlDraft={baseUrlDraft}
+          cowriterPrompt={cowriterPrompt}
+          cowriterState={cowriterState}
+          cowriterStatus={cowriterStatus}
+          cowriterAnswer={cowriterAnswer}
+          cowriterError={cowriterError}
+          retrievalResults={retrievalResults}
+          answerWardHits={answerWardHits}
+          wards={wards}
+          wardInput={wardInput}
+          wardSeverity={wardSeverity}
+          wardState={wardState}
+          wardStatus={wardStatus}
+          searchResults={searchResults}
+          onToggleToolSection={toggleToolSection}
+          onImportTitleChange={setImportTitle}
+          onImportBodyChange={setImportBody}
+          onPasteImport={handlePasteImport}
+          onFileImport={handleFileImport}
+          onRefreshEngine={refreshEngine}
+          onProviderTest={handleProviderTest}
+          onProviderSelection={handleProviderSelection}
+          onModelDraftChange={setModelDraft}
+          onApiKeyDraftChange={setApiKeyDraft}
+          onBaseUrlDraftChange={setBaseUrlDraft}
+          onApiKeySave={handleApiKeySave}
+          onApiKeyDelete={handleApiKeyDelete}
+          onEngineSettingsSave={handleEngineSettingsSave}
+          onCowriterPromptChange={setCowriterPrompt}
+          onRunCowriter={() => runCowriter()}
+          onInsertAnswer={insertCowriterAnswer}
+          onCopyAnswer={copyCowriterAnswer}
+          onDiscardAnswer={() => { setCowriterAnswer(""); setAnswerWardHits([]); }}
+          onRewriteClean={() => runCowriter("Rewrite cleanly and avoid every warded phrase.")}
+          onWardInputChange={setWardInput}
+          onWardSeverityChange={setWardSeverity}
+          onWardAdd={handleWardAdd}
+          onWardRemove={handleWardRemove}
+          onSelectItem={setActiveItemId}
+          onExpandRight={() => setSideCollapsed("right", false)}
+          onCollapseRight={() => setSideCollapsed("right", true)}
+        />
       </section>
       )}
 
@@ -1874,687 +1520,6 @@ export function App() {
       ) : null}
     </main>
   );
-}
-
-function VaultTree({
-  tree,
-  activeItemId,
-  expandedNodeIds,
-  onArchiveItem,
-  onToggle,
-  onSelectItem,
-}: {
-  tree: VaultTreeResponse;
-  activeItemId: string;
-  expandedNodeIds: Set<string>;
-  onArchiveItem: (itemId: string) => void;
-  onToggle: (nodeId: string) => void;
-  onSelectItem: (itemId: string) => void;
-}) {
-  if (tree.itemCount === 0) {
-    return (
-      <div className="vault-empty">
-        <strong>The Vault is quiet</strong>
-        <span>Create your first Wing or import writing to begin.</span>
-      </div>
-    );
-  }
-
-  return (
-    <nav className="vault-tree" aria-label="Vault memory">
-      {tree.wings.map((wing) => (
-        <WingBranch
-          key={wing.id}
-          wing={wing}
-          activeItemId={activeItemId}
-          expandedNodeIds={expandedNodeIds}
-          onArchiveItem={onArchiveItem}
-          onToggle={onToggle}
-          onSelectItem={onSelectItem}
-        />
-      ))}
-    </nav>
-  );
-}
-
-function CollapsedRail({
-  icon,
-  label,
-  onExpand,
-  side,
-}: {
-  icon: ReactNode;
-  label: string;
-  onExpand: () => void;
-  side: "left" | "right";
-}) {
-  return (
-    <button className={`collapsed-rail ${side}`} type="button" onClick={onExpand} aria-label={label} title={label}>
-      {icon}
-      {side === "left" ? <ChevronRight size={16} aria-hidden="true" /> : <ChevronLeft size={16} aria-hidden="true" />}
-    </button>
-  );
-}
-
-function ToolAccordion({
-  id,
-  icon,
-  open,
-  title,
-  onToggle,
-  children,
-}: {
-  id: ToolSectionId;
-  icon: ReactNode;
-  open: boolean;
-  title: string;
-  onToggle: (id: ToolSectionId) => void;
-  children: ReactNode;
-}) {
-  const titleId = `${id}-title`;
-  return (
-    <section className={open ? "tool-section open" : "tool-section"} aria-labelledby={titleId}>
-      <button
-        className="tool-section-toggle"
-        type="button"
-        aria-expanded={open}
-        aria-controls={`${id}-body`}
-        onClick={() => onToggle(id)}
-      >
-        <SectionTitle icon={icon} id={titleId} title={title} />
-        {open ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}
-      </button>
-      {open ? (
-        <div className="tool-section-body" id={`${id}-body`}>
-          {children}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function WingBranch({
-  wing,
-  activeItemId,
-  expandedNodeIds,
-  onArchiveItem,
-  onToggle,
-  onSelectItem,
-}: {
-  wing: VaultWingNode;
-  activeItemId: string;
-  expandedNodeIds: Set<string>;
-  onArchiveItem: (itemId: string) => void;
-  onToggle: (nodeId: string) => void;
-  onSelectItem: (itemId: string) => void;
-}) {
-  const expanded = expandedNodeIds.has(wing.id);
-  return (
-    <TreeBranch
-      id={wing.id}
-      label={wing.name}
-      meta={`Wing / ${countWingItems(wing)} items`}
-      level={0}
-      expanded={expanded}
-      onToggle={onToggle}
-    >
-      {wing.halls.map((hall) => (
-        <HallBranch
-          key={hall.id}
-          hall={hall}
-          activeItemId={activeItemId}
-          expandedNodeIds={expandedNodeIds}
-          onArchiveItem={onArchiveItem}
-          onToggle={onToggle}
-          onSelectItem={onSelectItem}
-        />
-      ))}
-    </TreeBranch>
-  );
-}
-
-function HallBranch({
-  hall,
-  activeItemId,
-  expandedNodeIds,
-  onArchiveItem,
-  onToggle,
-  onSelectItem,
-}: {
-  hall: VaultHallNode;
-  activeItemId: string;
-  expandedNodeIds: Set<string>;
-  onArchiveItem: (itemId: string) => void;
-  onToggle: (nodeId: string) => void;
-  onSelectItem: (itemId: string) => void;
-}) {
-  const expanded = expandedNodeIds.has(hall.id);
-  return (
-    <TreeBranch
-      id={hall.id}
-      label={hall.name}
-      meta={`Hall / ${countHallItems(hall)} items`}
-      level={1}
-      expanded={expanded}
-      onToggle={onToggle}
-    >
-      {hall.rooms.map((room) => (
-        <RoomBranch
-          key={room.id}
-          room={room}
-          activeItemId={activeItemId}
-          expandedNodeIds={expandedNodeIds}
-          onArchiveItem={onArchiveItem}
-          onToggle={onToggle}
-          onSelectItem={onSelectItem}
-        />
-      ))}
-    </TreeBranch>
-  );
-}
-
-function RoomBranch({
-  room,
-  activeItemId,
-  expandedNodeIds,
-  onArchiveItem,
-  onToggle,
-  onSelectItem,
-}: {
-  room: VaultRoomNode;
-  activeItemId: string;
-  expandedNodeIds: Set<string>;
-  onArchiveItem: (itemId: string) => void;
-  onToggle: (nodeId: string) => void;
-  onSelectItem: (itemId: string) => void;
-}) {
-  const expanded = expandedNodeIds.has(room.id);
-  return (
-    <TreeBranch
-      id={room.id}
-      label={room.name}
-      meta={`Room / ${countRoomItems(room)} items`}
-      level={2}
-      expanded={expanded}
-      onToggle={onToggle}
-    >
-      {room.drawers.map((drawer) => (
-        <DrawerBranch
-          key={drawer.id}
-          drawer={drawer}
-          activeItemId={activeItemId}
-          expandedNodeIds={expandedNodeIds}
-          onArchiveItem={onArchiveItem}
-          onToggle={onToggle}
-          onSelectItem={onSelectItem}
-        />
-      ))}
-    </TreeBranch>
-  );
-}
-
-function DrawerBranch({
-  drawer,
-  activeItemId,
-  expandedNodeIds,
-  onArchiveItem,
-  onToggle,
-  onSelectItem,
-}: {
-  drawer: VaultDrawerNode;
-  activeItemId: string;
-  expandedNodeIds: Set<string>;
-  onArchiveItem: (itemId: string) => void;
-  onToggle: (nodeId: string) => void;
-  onSelectItem: (itemId: string) => void;
-}) {
-  const expanded = expandedNodeIds.has(drawer.id);
-  return (
-    <TreeBranch
-      id={drawer.id}
-      label={drawer.name}
-      meta={`Drawer / ${drawer.items.length} items`}
-      level={3}
-      expanded={expanded}
-      onToggle={onToggle}
-    >
-      {drawer.items.map((item) => (
-        <button
-          key={item.id}
-          className={item.id === activeItemId ? "tree-item active" : "tree-item"}
-          type="button"
-          aria-current={item.id === activeItemId ? "page" : undefined}
-          style={treeDepthStyle(4)}
-          onClick={() => onSelectItem(item.id)}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            onArchiveItem(item.id);
-          }}
-          title="Right-click to archive"
-        >
-          <span>{item.title}</span>
-          <small>{item.itemType}</small>
-        </button>
-      ))}
-    </TreeBranch>
-  );
-}
-
-function TreeBranch({
-  id,
-  label,
-  meta,
-  level,
-  expanded,
-  onToggle,
-  children,
-}: {
-  id: string;
-  label: string;
-  meta: string;
-  level: number;
-  expanded: boolean;
-  onToggle: (nodeId: string) => void;
-  children: ReactNode;
-}) {
-  return (
-    <div className="tree-branch">
-      <button
-        className="tree-branch-button"
-        type="button"
-        aria-expanded={expanded}
-        style={treeDepthStyle(level)}
-        onClick={() => onToggle(id)}
-      >
-        {expanded ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}
-        <span>{label}</span>
-        <small>{meta}</small>
-      </button>
-      {expanded ? <div className="tree-branch-children">{children}</div> : null}
-    </div>
-  );
-}
-
-function ResultList({
-  results,
-  onSelect,
-}: {
-  results: SearchChunkResult[];
-  onSelect: (itemId: string) => void;
-}) {
-  if (results.length === 0) {
-    return <p className="operation-status">No retrieval results yet.</p>;
-  }
-
-  return (
-    <div className="result-list">
-      {results.slice(0, 5).map((result) => (
-        <button key={result.chunkId} className="result-item" type="button" onClick={() => onSelect(result.itemId)}>
-          <strong>{result.title}</strong>
-          <span>{result.vaultPath}</span>
-          <small>{result.confidence} confidence</small>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function CitationList({ results }: { results: SearchChunkResult[] }) {
-  if (results.length === 0) return null;
-
-  return (
-    <div className="citation-list">
-      <strong>Citations</strong>
-      {results.slice(0, 3).map((result, index) => (
-        <span key={result.chunkId}>
-          [{index + 1}] {result.vaultPath}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function WardWarnings({ hits }: { hits: WardScanHit[] }) {
-  if (hits.length === 0) return null;
-
-  return (
-    <div className="ward-warning">
-      <AlertTriangle size={15} aria-hidden="true" />
-      <span>
-        Wards found {hits.map((hit) => `${hit.value} (${hit.count})`).join(", ")}. This is a warning, not a perfect style check.
-      </span>
-    </div>
-  );
-}
-
-function ProgressList({ labels }: { labels: string[] }) {
-  if (labels.length === 0) return null;
-  return (
-    <div className="progress-list">
-      {labels.map((label) => (
-        <span key={label}>
-          <Check size={12} />
-          {label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function OnboardingOverlay({
-  step,
-  projectReady,
-  projectName,
-  importTitle,
-  importBody,
-  importState,
-  importStatus,
-  activeProvider,
-  engineStatus,
-  onImportTitleChange,
-  onImportBodyChange,
-  onImportFiles,
-  onImportPaste,
-  onSelectProvider,
-  onWardPresetSelect,
-  onContinue,
-  onSkip,
-  onDone,
-}: {
-  step: OnboardingStep;
-  projectReady: boolean;
-  projectName: string;
-  importTitle: string;
-  importBody: string;
-  importState: AsyncState;
-  importStatus: string;
-  activeProvider: AiProviderKind;
-  engineStatus: string;
-  onImportTitleChange: (value: string) => void;
-  onImportBodyChange: (value: string) => void;
-  onImportFiles: (files: FileList | null) => Promise<void>;
-  onImportPaste: () => Promise<void>;
-  onSelectProvider: (provider: AiProviderKind) => void;
-  onWardPresetSelect: (value: string) => void;
-  onContinue: () => void;
-  onSkip?: () => void;
-  onDone: () => void;
-}) {
-  const copy = onboardingCopy[step];
-  const finalStep = step === "canvas";
-
-  return (
-    <div className="onboarding-backdrop" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
-      <section className="onboarding-panel">
-        <button className="icon-button dismiss" type="button" aria-label="Close onboarding" onClick={onDone}>
-          <X size={16} />
-        </button>
-        <p className="eyebrow">First run</p>
-        <h2 id="onboarding-title">{copy.title}</h2>
-        <p>{copy.body}</p>
-        <div className="onboarding-progress" aria-label="Onboarding progress">
-          {onboardingSteps.map((candidate) => (
-            <span key={candidate} className={candidate === step ? "active" : undefined} />
-          ))}
-        </div>
-        <div className="onboarding-status">
-          <Database size={15} aria-hidden="true" />
-          {projectReady ? "Vault project ready" : "Preparing local Vault"}
-        </div>
-        <OnboardingAction
-          activeProvider={activeProvider}
-          engineStatus={engineStatus}
-          importBody={importBody}
-          importState={importState}
-          importStatus={importStatus}
-          importTitle={importTitle}
-          projectName={projectName}
-          projectReady={projectReady}
-          step={step}
-          onImportBodyChange={onImportBodyChange}
-          onImportFiles={onImportFiles}
-          onImportPaste={onImportPaste}
-          onImportTitleChange={onImportTitleChange}
-          onSelectProvider={onSelectProvider}
-          onWardPresetSelect={onWardPresetSelect}
-        />
-        <div className="inline-actions">
-          {onSkip ? (
-            <button className="button button-secondary" type="button" onClick={onSkip}>
-              Skip
-            </button>
-          ) : null}
-          <button className="button button-primary" type="button" onClick={finalStep ? onDone : onContinue}>
-            {finalStep ? "Enter Grimoire" : "Continue"}
-          </button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function OnboardingAction({
-  activeProvider,
-  engineStatus,
-  importBody,
-  importState,
-  importStatus,
-  importTitle,
-  projectName,
-  projectReady,
-  step,
-  onImportBodyChange,
-  onImportFiles,
-  onImportPaste,
-  onImportTitleChange,
-  onSelectProvider,
-  onWardPresetSelect,
-}: {
-  activeProvider: AiProviderKind;
-  engineStatus: string;
-  importBody: string;
-  importState: AsyncState;
-  importStatus: string;
-  importTitle: string;
-  projectName: string;
-  projectReady: boolean;
-  step: OnboardingStep;
-  onImportBodyChange: (value: string) => void;
-  onImportFiles: (files: FileList | null) => Promise<void>;
-  onImportPaste: () => Promise<void>;
-  onImportTitleChange: (value: string) => void;
-  onSelectProvider: (provider: AiProviderKind) => void;
-  onWardPresetSelect: (value: string) => void;
-}) {
-  if (step === "vault") {
-    return (
-      <div className="onboarding-action-card">
-        <strong>{projectReady ? projectName : "Preparing project"}</strong>
-        <span>{projectReady ? "Local SQLite storage is ready." : "Grimoire is creating local project storage."}</span>
-      </div>
-    );
-  }
-
-  if (step === "feed") {
-    return (
-      <form
-        className="onboarding-action-card"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          await onImportPaste();
-        }}
-      >
-        <input
-          className="compact-input"
-          value={importTitle}
-          onChange={(event) => onImportTitleChange(event.target.value)}
-          placeholder="Starter import title"
-        />
-        <textarea
-          className="compact-textarea"
-          value={importBody}
-          onChange={(event) => onImportBodyChange(event.target.value)}
-          placeholder={`Paste writing, or choose files below. ${IMPORT_WORD_LIMIT.toLocaleString()} words per import.`}
-        />
-        <div className="inline-actions">
-          <button className="button button-primary" type="submit" disabled={importState === "working" || !importBody.trim()}>
-            {importState === "working" ? <Loader2 size={16} /> : <Clipboard size={16} />}
-            Import Paste
-          </button>
-          <label className="file-button">
-            <FileText size={16} aria-hidden="true" />
-            Choose Files
-            <input
-              type="file"
-              accept=".txt,.md,.markdown,text/plain,text/markdown"
-              multiple
-              onChange={(event) => onImportFiles(event.currentTarget.files)}
-            />
-          </label>
-        </div>
-        <span className="tool-hint">Markdown and text files are imported into the Vault Feed.</span>
-        <span className={`operation-status ${importState}`}>{importStatus}</span>
-      </form>
-    );
-  }
-
-  if (step === "engine") {
-    return (
-      <div className="onboarding-action-card">
-        <div className="provider-grid onboarding-provider-grid" role="radiogroup" aria-label="Choose AI provider">
-          {AI_PROVIDERS.map((provider) => (
-            <button
-              key={provider}
-              className={provider === activeProvider ? "provider-button active" : "provider-button"}
-              type="button"
-              role="radio"
-              aria-checked={provider === activeProvider}
-              onClick={() => onSelectProvider(provider)}
-            >
-              <span>{providerLabels[provider]}</span>
-              <small>{cloudProvider(provider) ? "BYOK cloud" : "Local"}</small>
-            </button>
-          ))}
-        </div>
-        <span className="operation-status">{engineStatus}</span>
-      </div>
-    );
-  }
-
-  if (step === "wards") {
-    return (
-      <div className="onboarding-action-card">
-        <strong>Wards are banned words and banned phrases.</strong>
-        <span>
-          Grimoire scans Co-Writer output before insertion and warns when these words appear. Choose a starter below or add your own later.
-        </span>
-        <div className="ward-preset-grid" aria-label="Banned-word starter options">
-          {wardPresetOptions.map((preset) => (
-            <button className="provider-button" key={preset} type="button" onClick={() => onWardPresetSelect(preset)}>
-              <span>{preset}</span>
-              <small>Warn</small>
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  return null;
-}
-
-function CloudDisclosureDialog({
-  provider,
-  copy,
-  onAccept,
-  onCancel,
-}: {
-  provider: AiProviderKind;
-  copy: string;
-  onAccept: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="onboarding-backdrop" role="dialog" aria-modal="true" aria-labelledby="cloud-disclosure-title">
-      <section className="onboarding-panel cloud-disclosure-panel">
-        <button className="icon-button dismiss" type="button" aria-label="Cancel cloud provider" onClick={onCancel}>
-          <X size={16} />
-        </button>
-        <p className="eyebrow">Cloud model disclosure</p>
-        <h2 id="cloud-disclosure-title">{providerLabels[provider]}</h2>
-        <p className="cloud-disclosure-copy">{copy}</p>
-        <div className="inline-actions">
-          <button className="button button-secondary" type="button" onClick={onCancel}>
-            Keep Local
-          </button>
-          <button className="button button-primary" type="button" onClick={onAccept}>
-            <ShieldCheck size={16} aria-hidden="true" />
-            Accept
-          </button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function SectionTitle({ icon, id, title }: { icon: ReactNode; id: string; title: string }) {
-  return (
-    <div className="section-title">
-      {icon}
-      <h4 id={id}>{title}</h4>
-    </div>
-  );
-}
-
-function treeDepthStyle(level: number) {
-  return { "--tree-indent": `${level * 15}px` } as CSSProperties;
-}
-
-function countWingItems(wing: VaultWingNode) {
-  return wing.halls.reduce((count, hall) => count + countHallItems(hall), 0);
-}
-
-function countHallItems(hall: VaultHallNode) {
-  return hall.rooms.reduce((count, room) => count + countRoomItems(room), 0);
-}
-
-function countRoomItems(room: VaultRoomNode) {
-  return room.drawers.reduce((count, drawer) => count + drawer.items.length, 0);
-}
-
-function PanelHeader({
-  icon,
-  title,
-  subtitle,
-  action,
-}: {
-  icon: ReactNode;
-  title: string;
-  subtitle: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="panel-header">
-      <div className="panel-heading">
-        <div className="panel-icon">{icon}</div>
-        <div>
-          <h3>{title}</h3>
-          <p>{subtitle}</p>
-        </div>
-      </div>
-      {action}
-    </div>
-  );
-}
-
-function StatusChip({
-  tone,
-  label,
-}: {
-  tone: "success" | "neutral" | "warning";
-  label: string;
-}) {
-  return <span className={`status-chip ${tone}`}>{label}</span>;
 }
 
 function fallbackDetail(item: VaultItemNode): VaultItemDetail {
@@ -2699,28 +1664,6 @@ function cowriterSearchQueries(prompt: string) {
   );
 }
 
-function saveStateTone(saveState: SaveState): "success" | "neutral" | "warning" {
-  if (saveState === "saved") return "success";
-  if (saveState === "failed") return "warning";
-  return "neutral";
-}
-
-function saveStateLabel(saveState: SaveState) {
-  switch (saveState) {
-    case "editing":
-      return "Unsaved edits";
-    case "saving":
-      return "Saving";
-    case "saved":
-      return "Saved locally";
-    case "failed":
-      return "Save failed";
-    case "preview":
-      return "Preview only";
-    default:
-      return "Local-first";
-  }
-}
 
 function safeProviderError(message: string) {
   const lowerMessage = message.toLowerCase();
