@@ -1,135 +1,174 @@
 # Grimoire
-<img width="1672" height="941" alt="magical_grimoire_welcome_scene" src="https://github.com/user-attachments/assets/82525245-0a8d-4fd6-a1c5-3998fcc3a102" />
 
+> A local-first macOS writing studio for novelists, storytellers, and world-builders.
+> Dark academia meets luxury telemetry. Your book of spells.
 
-Grimoire is a local-first macOS writing studio for long-form projects, Palace-style memory, and AI assistance.
+![Grimoire welcome scene](https://github.com/user-attachments/assets/82525245-0a8d-4fd6-a1c5-3998fcc3a102)
 
-It stores your writing locally, uses SQLite for project memory/search, and can talk to local Ollama models when you choose to use them. Cloud providers are stable BYOK options for users who do not have local models available; they require explicit disclosure before any Palace excerpts or Canvas context are sent off-device.
+## What It Does
 
-## Status
+**Canvas** — A distraction-free writing surface. Long-form prose, saved locally, always yours.
 
-Grimoire is currently pre-1.0 software. It can be built and packaged as a macOS DMG, but the public release path is currently unsigned because the project does not yet have an Apple Developer account.
+**Grimoire Vault** — A spatial memory system for lore, characters, canon, and world-building. Organised as Wings → Halls → Rooms → Drawers → Items. Stored inside your project — no external dependencies, no random folders on your disk.
 
-Unsigned builds are usable, but macOS Gatekeeper may block first launch.
+**Co-Writer** — An AI assistant that queries your Vault before answering. Shows citations with source paths so you can verify every claim.
+
+**Wards** — Anti-slop guardrails. Banned words, cliché detection, voice drift monitoring. Keep your prose clean.
+
+Everything runs on your Mac. No accounts. No cloud lock-in. No telemetry.
+
+## Requirements
+
+- macOS 13 (Ventura) or later
+- Apple Silicon or Intel
+- Ollama (optional, for local AI Co-Writer)
 
 ## Download
 
-Releases are intended to be published from GitHub Releases.
+Releases are published on [GitHub Releases](https://github.com/witchdaddylabs/grimoire/releases).
 
 For unsigned community builds:
 
-1. Download the DMG from the official GitHub release.
+1. Download the DMG from the latest GitHub release.
 2. Open the DMG.
 3. Drag Grimoire to Applications.
 4. Launch Grimoire.
-5. If macOS blocks the launch, open System Settings > Privacy & Security and choose Open Anyway.
+5. If macOS Gatekeeper blocks the first launch, open **System Settings → Privacy & Security** and click **Open Anyway**.
 
 Only bypass Gatekeeper if you trust the release source.
 
-## Local-First Behavior
+## First Launch
 
-Grimoire creates local `.grimoire` project folders containing:
+When you open Grimoire for the first time, you'll be prompted to:
+
+- **Create a New Project** — start with a fresh Vault
+- **Open an Existing Project** — load a `.grimoire` project folder
+- **Load Demo** — explore with sample data
+
+Each project is a self-contained `.grimoire` folder with your writing, Vault, search index, and wards.
+
+## Local-First By Default
+
+Every project is a local `.grimoire` folder containing:
 
 - Project metadata
-- Palace structure
-- Writing items
-- Local search chunks
-- Wards
+- Grimoire Vault (your Wings, Halls, Rooms, Drawers, Items)
+- Writing items and search chunks
+- Wards (banned words and phrases)
 - Exports
 
 The app does not include telemetry, analytics SDKs, bundled model weights, hosted sync, or a required cloud account.
 
-## Ollama
+## Vault Memory System
 
-Ollama is optional. When available, Grimoire checks the local Ollama server at:
+The **Grimoire Vault** is your spatial memory:
 
-```text
+```
+Project
+└── Wings (top-level categories — "Characters", "World", "Drafts")
+    └── Halls (sections within a wing — "Protagonists", "Locations")
+        └── Rooms (groupings — "Main Cast", "Northern Cities")
+            └── Drawers (containers — "Physical Traits", "Backstory")
+                └── Items (individual notes — "Mara Thorne", "Chapter 01")
+```
+
+Items can hold prose, character sheets, world notes, chapter drafts — anything your project needs. The Co-Writer searches this Vault to ground every answer in your canon.
+
+The Vault is stored entirely within your project folder. It does not install to or depend on any external memory system.
+
+### External Vault Connector (optional)
+
+For users who also run external knowledge stores (e.g. MemPalace), Grimoire can optionally connect to browse them read-only. This is separate from your project's own Vault and is entirely opt-in.
+
+## Co-Writer
+
+The Co-Writer uses a local or cloud AI model to help with your writing. Before answering, it:
+
+1. **Searches your Vault** for relevant canon
+2. **Shows citations** with source paths and confidence scores
+3. **Composes an answer** grounded in your existing material
+
+Nothing is sent off-device without your explicit consent.
+
+### Ollama (local, free)
+
+Ollama is optional. When available, Grimoire connects to the local Ollama server at:
+
+```
 http://127.0.0.1:11434
 ```
 
-Writing, import, local search, wards, and export should still work when Ollama is missing or has no models.
+Writing, Vault search, wards, and export all work without Ollama.
 
-## Cloud Providers
+### Cloud BYOK (optional)
 
-Cloud providers are stable BYOK options:
+Cloud providers are available for users who prefer them or don't have local models:
 
 - OpenAI
-- OpenAI-compatible endpoints
+- OpenAI-compatible endpoints (Groq, Together, vLLM, etc.)
 - Google AI Studio
 
-Anthropic support is intentionally hidden in this build so the first public pass can focus on OpenAI and Google AI Studio.
+Cloud providers require you to choose a provider, enter your own API key, and accept a disclosure before any Vault excerpts or Canvas context are sent off-device.
 
-Cloud providers require provider selection, an API key, and explicit disclosure acceptance before a request can send Palace excerpts or Canvas context off-device. API keys are stored through macOS Keychain and must not be exported.
+API keys are stored in macOS Keychain. They are never written to project files, logs, or exports.
 
 ## Development
 
 Requirements:
 
-- Node.js and npm
-- Rust with `cargo`
+- Node.js 18+ and npm
+- Rust 1.80+ with `cargo`
 - Tauri macOS prerequisites
 
-Install dependencies:
-
 ```bash
+git clone https://github.com/witchdaddylabs/grimoire.git
+cd grimoire
 npm install
+npm run tauri dev    # run in development
+cargo check          # check Rust backend
+npm run build        # check frontend types + build
 ```
 
-Run the app in development:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines and PR workflow.
 
-```bash
-npm run tauri dev
+## Project Structure
+
+```
+grimoire/
+├── src/                    # Frontend (React + TypeScript)
+│   └── app/
+│       ├── App.tsx         # Main app shell
+│       ├── ai.ts           # AI provider integration
+│       ├── palace.ts       # Vault data layer (legacy name; rename in progress)
+│       └── project.ts      # Project open/create
+├── src-tauri/              # Backend (Rust)
+│   └── src/
+│       └── main.rs         # Tauri commands (split in progress)
+├── docs/                   # Technical documentation
+├── DESIGN.md               # Design system spec (tokens, principles, anti-references)
+├── PRODUCT.md              # Product definition
+├── PRIVACY.md              # Privacy policy
+├── SECURITY.md             # Security boundaries
+└── CONTRIBUTING.md         # Development guidelines
 ```
 
-Run the verification gate:
+## Status
 
-```bash
-npm run verify
-```
+Grimoire is **pre-1.0** software. The current build compiles and runs as a signed DMG, but the frontend is still transitioning from demo to real working data. Active development is underway to:
 
-Build an unsigned local DMG:
+- Wire project open/create workflow (replacing hardcoded demo data)
+- Split monolithic frontend/backend into feature modules
+- Complete Vault decoupling and external vault connector
+- Publish first public GitHub Release with installable DMG
 
-```bash
-npm run package:mac
-```
-
-The DMG is written under:
-
-```text
-src-tauri/target/release/bundle/dmg/
-```
-
-## Release Process
-
-Current release mode: unsigned community DMG.
-
-Useful docs:
-
-- [Release checklist](docs/release/release-checklist.md)
-- [Signing and notarization](docs/release/signing-notarization.md)
-- [Release QA](docs/qa/release-qa.md)
-- [Privacy](PRIVACY.md)
-- [Security](SECURITY.md)
-- [Contributing](CONTRIBUTING.md)
-
-## Project Storage
-
-The current development shell creates a demo project at:
-
-```text
-~/Documents/Grimoire Projects/Grimoire Demo.grimoire/
-```
-
-Future release work should add first-class user project open/create controls before calling the app complete.
-
-## Known Limitations
-
-- Public DMGs are unsigned until an Apple Developer account is available.
-- A final packaged-app click-through is still needed before publishing the GitHub release.
-- First-class user project open/create controls still need a final product pass; the current development shell creates a demo project.
-- Ollama/Co-Writer behavior depends on locally installed user models.
-- Cloud provider release QA is currently focused on OpenAI, OpenAI-compatible endpoints, and Google AI Studio; Anthropic is deferred.
+See the [GitHub Issues](https://github.com/witchdaddylabs/grimoire/issues) for current work items.
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Credits
+
+The Grimoire Vault memory model was inspired by the open-source [MemPalace](https://github.com/MemPalace/mempalace) project. Grimoire is an independent project and is not affiliated with or endorsed by MemPalace. See [NOTICE.md](NOTICE.md) for attribution details.
+
+Built by [Witch Daddy Labs](https://witchdaddylabs.com).

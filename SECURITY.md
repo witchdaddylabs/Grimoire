@@ -6,11 +6,11 @@ Please report security issues privately to the project maintainers before openin
 
 ## Security Boundaries
 
-Grimoire is local-first. Project content is stored on the user's Mac in local project files.
+Grimoire is local-first. Project content is stored on the user's Mac in local `.grimoire` project files. The Grimoire Vault lives inside the project bundle — it does not install to or depend on external directories.
 
 API keys for optional cloud providers must be stored in macOS Keychain, not in SQLite, exported project files, logs, or screenshots.
 
-Cloud provider support is BYOK only. Users choose a provider, provide their own key, and accept disclosure before Palace excerpts or Canvas context are sent off-device.
+Cloud provider support is BYOK only. Users choose a provider, provide their own key, and accept disclosure before Vault excerpts or Canvas context are sent off-device.
 
 ## Supported Versions
 

@@ -12,11 +12,11 @@ The primary user may not be technical. They want the benefits of local AI and st
 
 ## Product Purpose
 
-Grimoire is a local-first writing studio with memory. It combines a long-form Canvas, a structured spatial archive called The Palace, a local AI Co-Writer that retrieves canon before answering, and wards that flag banned words, repeated phrases, cliche phrasing, and voice drift.
+Grimoire is a local-first writing studio with memory. It combines a long-form Canvas, a structured spatial archive called the Grimoire Vault, a local AI Co-Writer that retrieves canon before answering, and wards that flag banned words, repeated phrases, cliché phrasing, and voice drift.
 
 MVP success means proving one complete vertical slice:
 
-Open the app, create a local Palace, feed it writing, store the work locally, write in the Canvas, connect Ollama, ask the Co-Writer, retrieve Palace memory, show citations, scan banned words, insert or reject output, and export Markdown.
+Open the app, create a new project, feed the Vault writing, store the work locally, write in the Canvas, connect Ollama, ask the Co-Writer, retrieve Vault memory, show citations, scan banned words, insert or reject output, and export Markdown.
 
 The Canvas remains the source of truth. AI is optional, cited, interruptible, and never allowed to dominate the writing workflow.
 
@@ -26,7 +26,7 @@ Grimoire is made by Witch Daddy Labs. The personality is intelligent, cheeky, wr
 
 The central tone rule is: magic in the labels, clarity in the instructions. The UI can wink, but it should not giggle. It should feel useful, trustworthy, serious enough for real writers, and never fake-spiritual.
 
-Good product language includes "Feed the Palace", "Set the wards", "Word essence", "Consulting the Palace", "Reading canon traces", "Slop wards active", "Banish word", "The Palace is quiet", "The Co-Writer is asleep", and "Your words stay local".
+Good product language includes "Feed the Vault", "Set the wards", "Word essence", "Consulting the Vault", "Reading canon traces", "Slop wards active", "Banish word", "The Vault is quiet", "The Co-Writer is asleep", and "Your words stay local".
 
 ## Anti-references
 

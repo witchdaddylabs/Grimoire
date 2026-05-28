@@ -6,9 +6,9 @@ Thanks for helping improve Grimoire.
 
 Requirements:
 
-- Node.js and npm
-- Rust with `cargo`
-- Tauri macOS prerequisites
+- Node.js 18+ and npm
+- Rust 1.80+ with `cargo`
+- Tauri macOS prerequisites (Xcode Command Line Tools)
 
 Install dependencies:
 
@@ -22,39 +22,43 @@ Run the desktop app:
 npm run tauri dev
 ```
 
-Run the verification gate:
-
-```bash
-npm run verify
-```
-
 Build a local macOS DMG:
 
 ```bash
-npm run package:mac
+npm run tauri build
+```
+
+Run checks before committing:
+
+```bash
+npm run build    # frontend type-check + build
+cargo check      # Rust backend
 ```
 
 ## Development Notes
 
-- Keep Grimoire local-first by default.
-- Do not add telemetry.
+- Keep Grimoire local-first by default. No telemetry, no analytics.
+- The Grimoire Vault lives inside the `.grimoire` project bundle — never write to external or random paths on the user's machine.
+- "Palace" is legacy terminology from the Codex genesis sprints. All new code uses "Vault" (`GrimoireVault`, `VaultWingNode`, `db_get_vault_tree`, etc.).
 - Do not store API keys in SQLite, project exports, logs, or screenshots.
 - Keep cloud providers user-owned-key only and behind explicit disclosure.
 - Add focused Rust tests for pure helpers and provider request builders.
-- Update QA docs when changing user-facing behavior.
+- Update docs when changing user-facing behavior.
 
 ## Pull Requests
 
-Before opening a pull request:
+Branch pattern: `sprintN/description` → PR → review → merge. No direct pushes to `main`.
+
+Before opening a pull request, run:
 
 ```bash
-npm run verify
+npm run build && cargo check
 ```
 
 For release or packaging changes, also run:
 
 ```bash
-npm run package:mac
+npm run tauri build
 ```
 
 Include a short note about what you tested manually.

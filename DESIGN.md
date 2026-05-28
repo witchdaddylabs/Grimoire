@@ -93,7 +93,7 @@ It explicitly rejects generic SaaS dashboard aesthetics, bloated AI writing suit
 
 - Local-first trust signals are visible without becoming marketing.
 - The Canvas gets the strongest visual priority.
-- The Palace feels spatial and archival, not like a plain file tree.
+- The Vault feels spatial and archival, not like a plain file tree.
 - The Co-Writer feels useful and cited, not magical in a hand-wavy way.
 - Motion is restrained, with status changes and focus transitions only.
 
@@ -208,25 +208,25 @@ Inputs should feel like dark inset controls inside the app shell. Labels must be
 
 ### Navigation
 
-Navigation is archival and spatial. The Palace tree should show hierarchy clearly through indentation, disclosure state, item type, and active selection. It must not look like a generic file explorer.
+Navigation is archival and spatial. The Vault tree should show hierarchy clearly through indentation, disclosure state, item type, and active selection. It must not look like a generic file explorer.
 
 - **Style:** Mono metadata, compact row height, warm hover tint, visible active item.
 - **Mobile Treatment:** Collapse side panels before compressing the Canvas. The writing surface stays readable first.
 
 ### Source Citation Cards
 
-Citation cards prove that the Co-Writer retrieved real Palace memory. Each card should show source title, item type, Palace path, and a short excerpt. Confidence belongs near the answer, not hidden in settings.
+Citation cards prove that the Co-Writer retrieved real Vault memory. Each card should show source title, item type, Vault path, and a short excerpt. Confidence belongs near the answer, not hidden in settings.
 
 ## 6. Do's and Don'ts
 
 ### Do:
 
-- **Do** keep the Canvas visually dominant over Palace and Co-Writer panels.
+- **Do** keep the Canvas visually dominant over Vault and Co-Writer panels.
 - **Do** use charcoal and graphite as the structural UI system.
 - **Do** use bronze only for fine borders, selected-state details, small brand accents, and focus indicators.
 - **Do** reserve ward emerald for local status, retrieval progress, save success, memory confidence, and guardrail pass states.
 - **Do** offer an optional ivory manuscript mode for users who prefer a lighter long-form writing surface.
-- **Do** show source paths and citations whenever the Co-Writer uses Palace memory.
+- **Do** show source paths and citations whenever the Co-Writer uses Vault memory.
 - **Do** use visible labels for inputs and accessible names for icon-only buttons.
 - **Do** make project ownership visible through local save state, export actions, and privacy copy.
 - **Do** support keyboard focus with a visible brass outline.
