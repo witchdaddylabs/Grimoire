@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub const CLOUD_DISCLOSURE_COPY: &str = r#"Cloud model disclosure
 
-You are selecting a cloud model provider. Grimoire will send the prompt, relevant Palace excerpts, and active Canvas context needed for your Co-Writer request to the selected provider.
+You are selecting a cloud model provider. Grimoire will send the prompt, relevant Vault excerpts, and active Canvas context needed for your Co-Writer request to the selected provider.
 
 Your use of this model is subject to that provider's privacy policy, data processing terms, retention rules, and billing terms. Local-first mode remains available through Ollama, where supported by your machine.
 

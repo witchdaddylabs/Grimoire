@@ -492,6 +492,64 @@ select:focus-visible,
   box-shadow: inset 0 0 0 1px rgba(184, 135, 98, 0.08);
 }
 
+
+.external-vault-card {
+  display: grid;
+  gap: 8px;
+  margin: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(232, 229, 221, 0.025);
+}
+
+.external-vault-header {
+  margin: 0;
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.external-vault-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.external-vault-tree {
+  display: grid;
+  gap: 6px;
+  color: var(--parchment-muted);
+  font-size: 12px;
+}
+
+.external-vault-tree small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.external-vault-tree details {
+  border-left: 1px solid var(--border-subtle);
+  padding-left: 8px;
+}
+
+.external-vault-tree summary {
+  cursor: pointer;
+  color: var(--parchment-secondary);
+}
+
+.external-vault-tree summary span {
+  color: var(--parchment-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.external-vault-tree ul {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+
 .vault-empty {
   display: grid;
   gap: 8px;

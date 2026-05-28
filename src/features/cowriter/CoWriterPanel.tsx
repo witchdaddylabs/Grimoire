@@ -259,7 +259,7 @@ export function CoWriterPanel(props: CoWriterPanelProps) {
 
         {/* About */}
         <ToolAccordion id="about" icon={<Info size={15} />} open={props.openToolSectionSet.has("about")} title="About" onToggle={props.onToggleToolSection}>
-          <p>Grimoire is an independent Witch Daddy Labs project. The Vault memory model is inspired by the MIT-licensed MemPalace project; Grimoire is not affiliated with MemPalace.</p>
+          <p>Grimoire is an independent Witch Daddy Labs project. The Vault memory model is local-first, project-contained, and designed for private world-building.</p>
         </ToolAccordion>
       </div>
     </>

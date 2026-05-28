@@ -133,6 +133,50 @@ export type ExportResponse = {
   message: string;
 };
 
+
+export type ExternalVaultDrawer = {
+  name: string;
+  keywords: string[];
+  descriptions: string[];
+  entities: string[];
+};
+
+export type ExternalVaultRoom = {
+  name: string;
+  keywords: string[];
+  entities: string[];
+  drawers: ExternalVaultDrawer[];
+};
+
+export type ExternalVaultWing = {
+  name: string;
+  path: string | null;
+  rooms: ExternalVaultRoom[];
+};
+
+export type ExternalVaultStructure = {
+  wings: ExternalVaultWing[];
+  totalWings: number;
+  totalRooms: number;
+  totalDrawers: number;
+  sourceFile: string;
+};
+
+export type CreateVaultNodeRequest = {
+  projectPath: string;
+  nodeType: "wing" | "hall" | "room" | "drawer" | "item";
+  parentId?: string;
+  name: string;
+  description?: string;
+  itemType?: string;
+};
+
+export type CreateVaultNodeResponse = {
+  id: string;
+  nodeType: string;
+  tree: VaultTreeResponse;
+};
+
 // ── Tauri command wrappers ──
 
 export function loadVaultTree(projectPath: string) {
@@ -227,6 +271,27 @@ export function exportItemMarkdown(projectPath: string, itemId: string) {
 
 export function exportProjectJson(projectPath: string) {
   return invoke<ExportResponse>("export_project_json", { projectPath });
+}
+
+export function exportVaultItemsJson(projectPath: string) {
+  return invoke<ExportResponse>("export_vault_items_json", { projectPath });
+}
+
+export function parseExternalVault(path?: string) {
+  return invoke<ExternalVaultStructure>("external_vault_parse", { path });
+}
+
+export function createVaultNode(
+  projectPath: string,
+  nodeType: "wing" | "hall" | "room" | "drawer" | "item",
+  name: string,
+  parentId?: string,
+  description?: string,
+  itemType?: string,
+) {
+  return invoke<CreateVaultNodeResponse>("db_create_vault_node", {
+    request: { projectPath, nodeType, parentId, name, description, itemType },
+  });
 }
 
 // ── Fallback demo data for browser preview ──

@@ -56,20 +56,24 @@ import {
 import {
   addWard,
   archiveVaultItem,
+  createVaultNode,
   deleteVaultItem,
   exportItemMarkdown,
   exportProjectJson,
+  exportVaultItemsJson,
   fallbackVaultTree,
   flattenVaultItems,
   getVaultItem,
   importText,
   listWards,
   loadVaultTree,
+  parseExternalVault,
   removeWard,
   scanWards,
   searchChunks,
   updateVaultItem,
   type BannedWord,
+  type ExternalVaultStructure,
   type SearchChunkResult,
   type VaultDrawerNode,
   type VaultHallNode,
@@ -219,6 +223,10 @@ export function App() {
   const [importState, setImportState] = useState<AsyncState>("idle");
   const [importStatus, setImportStatus] = useState("Paste text or choose .txt / .md files.");
   const [importProgress, setImportProgress] = useState<string[]>([]);
+  const [externalVault, setExternalVault] = useState<ExternalVaultStructure | null>(null);
+  const [externalVaultState, setExternalVaultState] = useState<AsyncState>("idle");
+  const [externalVaultStatus, setExternalVaultStatus] = useState("Optional read-only YAML connector.");
+
 
   const [providerSettings, setProviderSettings] = useState<AiProviderSettingsResponse | null>(null);
   const [providerModels, setProviderModels] = useState<AiProviderModelsResponse | null>(null);
@@ -1124,6 +1132,23 @@ export function App() {
     }
   }
 
+  async function handleExportVaultItems() {
+    if (!project || tauriState !== "awake") {
+      setExportState("failed");
+      setExportStatus("Vault item export needs the desktop shell.");
+      return;
+    }
+    setExportState("working");
+    try {
+      const response = await exportVaultItemsJson(project.projectPath);
+      setExportState("success");
+      setExportStatus(`${response.message} ${compactPath(response.path)}`);
+    } catch (error) {
+      setExportState("failed");
+      setExportStatus(describeError(error));
+    }
+  }
+
   function selectFirstItemFromTree(tree: VaultTreeResponse) {
     const firstItem = flattenVaultItems(tree)[0];
     setActiveItemId(firstItem?.id ?? "");
@@ -1155,6 +1180,87 @@ export function App() {
       selectFirstItemFromTree(tree);
       setExportState("success");
       setExportStatus(`Safely removed ${title}. It is hidden from Vault search/tree but retained in the local database.`);
+    } catch (error) {
+      setExportState("failed");
+      setExportStatus(describeError(error));
+    }
+  }
+
+
+  async function handleOpenExternalVault() {
+    if (tauriState !== "awake") {
+      setExternalVaultState("failed");
+      setExternalVaultStatus("External Vault YAML needs the desktop shell.");
+      return;
+    }
+    setExternalVaultState("working");
+    try {
+      const selected = await open({
+        multiple: false,
+        title: "Open External Vault YAML",
+        filters: [{ name: "YAML", extensions: ["yaml", "yml"] }],
+      });
+      if (!selected || typeof selected !== "string") {
+        setExternalVaultState("idle");
+        setExternalVaultStatus(externalVault ? "External Vault still loaded." : "Optional read-only YAML connector.");
+        return;
+      }
+      const parsed = await parseExternalVault(selected);
+      setExternalVault(parsed);
+      setExternalVaultState("success");
+      setExternalVaultStatus(`Loaded ${parsed.totalWings} wings, ${parsed.totalRooms} rooms, ${parsed.totalDrawers} drawers.`);
+    } catch (error) {
+      setExternalVaultState("failed");
+      setExternalVaultStatus(describeError(error));
+    }
+  }
+
+  function handleClearExternalVault() {
+    setExternalVault(null);
+    setExternalVaultState("idle");
+    setExternalVaultStatus("Optional read-only YAML connector.");
+  }
+
+  async function handleCreateVaultNode(
+    nodeType: "wing" | "hall" | "room" | "drawer" | "item",
+    parentId?: string,
+  ) {
+    if (!project || tauriState !== "awake") {
+      setExportState("failed");
+      setExportStatus("Open a real .grimoire project before creating Vault entries.");
+      return;
+    }
+
+    const label = nodeType === "item" ? "Vault item" : nodeType;
+    const name = window.prompt(`Name this ${label}:`);
+    if (!name?.trim()) return;
+
+    const itemType = nodeType === "item"
+      ? window.prompt("Item type (chapter, scene, character, location, lore, timeline, faction, research, note):", "note") ?? "note"
+      : undefined;
+
+    setExportState("working");
+    try {
+      const response = await createVaultNode(
+        project.projectPath,
+        nodeType,
+        name.trim(),
+        parentId,
+        undefined,
+        itemType?.trim() || "note",
+      );
+      setVaultTree(response.tree);
+      setExpandedNodeIds((current) => {
+        const next = new Set(current);
+        if (parentId) next.add(parentId);
+        if (nodeType !== "item") next.add(response.id);
+        return next;
+      });
+      if (nodeType === "item") {
+        setActiveItemId(response.id);
+      }
+      setExportState("success");
+      setExportStatus(`Created ${label}: ${name.trim()}`);
     } catch (error) {
       setExportState("failed");
       setExportStatus(describeError(error));
@@ -1393,6 +1499,12 @@ export function App() {
           onSelectItem={setActiveItemId}
           onArchiveItem={handleArchiveItem}
           onDeleteItem={() => handleDeleteItem()}
+          onCreateNode={handleCreateVaultNode}
+          externalVault={externalVault}
+          externalVaultState={externalVaultState}
+          externalVaultStatus={externalVaultStatus}
+          onOpenExternalVault={handleOpenExternalVault}
+          onClearExternalVault={handleClearExternalVault}
           onExpandLeft={() => setSideCollapsed("left", false)}
           onCollapseLeft={() => setSideCollapsed("left", true)}
           compactPath={compactPath}
@@ -1411,6 +1523,7 @@ export function App() {
           onContentChange={setEditorContent}
           onExportItem={handleExportItem}
           onExportProject={handleExportProject}
+          onExportVaultItems={handleExportVaultItems}
           onArchiveItem={() => handleArchiveItem(activeItemId)}
           onDeleteItem={() => handleDeleteItem()}
         />
