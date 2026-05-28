@@ -336,7 +336,7 @@ fn db_init(project_path: String) -> CommandResult<ProjectMetadata> {
 }
 
 #[tauri::command]
-fn db_get_palace_tree(project_path: String) -> CommandResult<PalaceTreeResponse> {
+fn db_get_vault_tree(project_path: String) -> CommandResult<PalaceTreeResponse> {
     let project_dir = validate_project_dir(PathBuf::from(project_path))?;
     let metadata = read_metadata(&project_dir)?;
     initialise_database(&metadata, false)?;
@@ -876,13 +876,14 @@ fn export_project_json(project_path: String) -> CommandResult<ExportResponse> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             app_ping,
             project_create,
             project_open,
             project_get_metadata,
             db_init,
-            db_get_palace_tree,
+            db_get_vault_tree,
             db_get_item,
             db_update_item,
             db_import_text,

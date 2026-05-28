@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { palaceItems } from "./demoData";
+import { vaultItems } from "./demoData";
 
-export type PalaceItemType =
+export type VaultItemType =
   | "chapter"
   | "scene"
   | "character"
@@ -12,52 +12,52 @@ export type PalaceItemType =
   | "research"
   | "note";
 
-export type PalaceItemNode = {
+export type VaultItemNode = {
   id: string;
   title: string;
-  itemType: PalaceItemType;
+  itemType: VaultItemType;
   content: string | null;
   wordCount: number;
   path: string;
 };
 
-export type PalaceDrawerNode = {
+export type VaultDrawerNode = {
   id: string;
   name: string;
   description: string | null;
-  items: PalaceItemNode[];
+  items: VaultItemNode[];
 };
 
-export type PalaceRoomNode = {
+export type VaultRoomNode = {
   id: string;
   name: string;
   description: string | null;
-  drawers: PalaceDrawerNode[];
+  drawers: VaultDrawerNode[];
 };
 
-export type PalaceHallNode = {
+export type VaultHallNode = {
   id: string;
   name: string;
   description: string | null;
-  rooms: PalaceRoomNode[];
+  rooms: VaultRoomNode[];
 };
 
-export type PalaceWingNode = {
+export type VaultWingNode = {
   id: string;
   name: string;
   description: string | null;
-  halls: PalaceHallNode[];
+  halls: VaultHallNode[];
 };
 
-export type PalaceTreeResponse = {
-  wings: PalaceWingNode[];
+export type VaultTreeResponse = {
+  wings: VaultWingNode[];
   itemCount: number;
 };
 
-export type PalaceItemDetail = {
+export type VaultItemDetail = {
   id: string;
   title: string;
-  itemType: PalaceItemType;
+  itemType: VaultItemType;
   content: string;
   plainText: string;
   wordCount: number;
@@ -66,7 +66,7 @@ export type PalaceItemDetail = {
 };
 
 export type ImportTextResponse = {
-  item: PalaceItemDetail;
+  item: VaultItemDetail;
   progressLabels: string[];
   createdChunks: number;
 };
@@ -75,8 +75,8 @@ export type SearchChunkResult = {
   chunkId: string;
   itemId: string;
   title: string;
-  itemType: PalaceItemType;
-  palacePath: string;
+  itemType: VaultItemType;
+  vaultPath: string;
   snippet: string;
   score: number;
   confidence: "high" | "medium" | "low" | "none";
@@ -133,21 +133,23 @@ export type ExportResponse = {
   message: string;
 };
 
-export function loadPalaceTree(projectPath: string) {
-  return invoke<PalaceTreeResponse>("db_get_palace_tree", { projectPath });
+// ── Tauri command wrappers ──
+
+export function loadVaultTree(projectPath: string) {
+  return invoke<VaultTreeResponse>("db_get_vault_tree", { projectPath });
 }
 
-export function getPalaceItem(projectPath: string, itemId: string) {
-  return invoke<PalaceItemDetail>("db_get_item", { projectPath, itemId });
+export function getVaultItem(projectPath: string, itemId: string) {
+  return invoke<VaultItemDetail>("db_get_item", { projectPath, itemId });
 }
 
-export function updatePalaceItem(
+export function updateVaultItem(
   projectPath: string,
   itemId: string,
   title: string,
   content: string,
 ) {
-  return invoke<PalaceItemDetail>("db_update_item", {
+  return invoke<VaultItemDetail>("db_update_item", {
     request: { projectPath, itemId, title, content },
   });
 }
@@ -158,14 +160,14 @@ export function importText(projectPath: string, title: string, content: string, 
   });
 }
 
-export function archivePalaceItem(projectPath: string, itemId: string) {
-  return invoke<PalaceTreeResponse>("db_archive_item", {
+export function archiveVaultItem(projectPath: string, itemId: string) {
+  return invoke<VaultTreeResponse>("db_archive_item", {
     request: { projectPath, itemId },
   });
 }
 
-export function deletePalaceItem(projectPath: string, itemId: string) {
-  return invoke<PalaceTreeResponse>("db_delete_item", {
+export function deleteVaultItem(projectPath: string, itemId: string) {
+  return invoke<VaultTreeResponse>("db_delete_item", {
     request: { projectPath, itemId },
   });
 }
@@ -227,8 +229,10 @@ export function exportProjectJson(projectPath: string) {
   return invoke<ExportResponse>("export_project_json", { projectPath });
 }
 
-export const fallbackPalaceTree: PalaceTreeResponse = {
-  itemCount: palaceItems.length,
+// ── Fallback demo data for browser preview ──
+
+export const fallbackVaultTree: VaultTreeResponse = {
+  itemCount: vaultItems.length,
   wings: [
     {
       id: "wing_novel",
@@ -300,7 +304,7 @@ export const fallbackPalaceTree: PalaceTreeResponse = {
   ],
 };
 
-export function flattenPalaceItems(tree: PalaceTreeResponse) {
+export function flattenVaultItems(tree: VaultTreeResponse) {
   return tree.wings.flatMap((wing) =>
     wing.halls.flatMap((hall) =>
       hall.rooms.flatMap((room) => room.drawers.flatMap((drawer) => drawer.items)),
@@ -308,8 +312,8 @@ export function flattenPalaceItems(tree: PalaceTreeResponse) {
   );
 }
 
-function fallbackItem(id: string, itemType: PalaceItemType): PalaceItemNode {
-  const item = palaceItems.find((candidate) => candidate.id === id);
+function fallbackItem(id: string, itemType: VaultItemType): VaultItemNode {
+  const item = vaultItems.find((candidate) => candidate.id === id);
 
   if (!item) {
     return {
@@ -329,5 +333,18 @@ function fallbackItem(id: string, itemType: PalaceItemType): PalaceItemNode {
     content: item.body,
     wordCount: item.body.split(/\s+/).filter(Boolean).length,
     path: `${item.path} / ${item.title}`,
+  };
+}
+
+export function fallbackDetail(item: VaultItemNode): VaultItemDetail {
+  return {
+    id: item.id,
+    title: item.title,
+    itemType: item.itemType,
+    content: item.content ?? "",
+    plainText: item.content ?? "",
+    wordCount: item.wordCount,
+    path: item.path,
+    updatedAt: new Date().toISOString(),
   };
 }

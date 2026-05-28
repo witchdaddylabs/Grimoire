@@ -55,38 +55,39 @@ import {
 } from "./ai";
 import {
   addWard,
-  archivePalaceItem,
-  deletePalaceItem,
+  archiveVaultItem,
+  deleteVaultItem,
   exportItemMarkdown,
   exportProjectJson,
-  fallbackPalaceTree,
-  flattenPalaceItems,
-  getPalaceItem,
+  fallbackVaultTree,
+  flattenVaultItems,
+  getVaultItem,
   importText,
   listWards,
-  loadPalaceTree,
+  loadVaultTree,
   removeWard,
   scanWards,
   searchChunks,
-  updatePalaceItem,
+  updateVaultItem,
   type BannedWord,
-  type PalaceDrawerNode,
-  type PalaceHallNode,
-  type PalaceItemDetail,
-  type PalaceItemNode,
-  type PalaceRoomNode,
-  type PalaceTreeResponse,
-  type PalaceWingNode,
   type SearchChunkResult,
+  type VaultDrawerNode,
+  type VaultHallNode,
+  type VaultItemDetail,
+  type VaultItemNode,
+  type VaultRoomNode,
+  type VaultTreeResponse,
+  type VaultWingNode,
   type WardScanHit,
   type WardSeverity,
-} from "./palace";
-import { compactPath, createDemoProject, describeError, type ProjectMetadata } from "./project";
+} from "./vault";
+import { compactPath, createProject, createDemoProject, openProject, recordRecentProject, removeRecentProject, getRecentProjects, describeError, type ProjectMetadata, type RecentProject } from "./project";
+import { open } from "@tauri-apps/plugin-dialog";
 
 type TauriState = "checking" | "awake" | "browser";
 type SaveState = "idle" | "editing" | "saving" | "saved" | "failed" | "preview";
 type AsyncState = "idle" | "working" | "success" | "failed";
-type OnboardingStep = "welcome" | "palace" | "feed" | "engine" | "wards" | "canvas";
+type OnboardingStep = "welcome" | "vault" | "feed" | "engine" | "wards" | "canvas";
 type ToolSectionId = "feed" | "retrieval" | "engine" | "cowriter" | "wards" | "about";
 type OnboardingState = {
   complete: boolean;
@@ -113,11 +114,11 @@ const AI_PROVIDERS: AiProviderKind[] = [
   "googleAiStudio",
 ];
 const FALLBACK_CLOUD_DISCLOSURE =
-  "Cloud providers may receive your prompt, relevant Palace excerpts, and active Canvas context.";
+  "Cloud providers may receive your prompt, relevant Vault excerpts, and active Canvas context.";
 
 const onboardingSteps: OnboardingStep[] = [
   "welcome",
-  "palace",
+  "vault",
   "feed",
   "engine",
   "wards",
@@ -138,12 +139,12 @@ const onboardingCopy: Record<OnboardingStep, { title: string; body: string }> = 
     title: "Welcome to Grimoire",
     body: "A local-first writing desk for long work, canon memory, and grounded assistance.",
   },
-  palace: {
-    title: "The Palace",
+  vault: {
+    title: "The Vault",
     body: "Your project is arranged as Wings, Halls, Rooms, Drawers, and editable writing items.",
   },
   feed: {
-    title: "Feed the Palace",
+    title: "Feed the Vault",
     body: "Paste text or import Markdown and plain text files when you are ready to stock local memory.",
   },
   engine: {
@@ -161,9 +162,9 @@ const onboardingCopy: Record<OnboardingStep, { title: string; body: string }> = 
 };
 
 export function App() {
-  const [palaceTree, setPalaceTree] = useState<PalaceTreeResponse>(fallbackPalaceTree);
+  const [vaultTree, setVaultTree] = useState<VaultTreeResponse>(fallbackVaultTree);
   const [activeItemId, setActiveItemId] = useState(
-    flattenPalaceItems(fallbackPalaceTree)[0]?.id ?? "",
+    flattenVaultItems(fallbackVaultTree)[0]?.id ?? "",
   );
   const [expandedNodeIds, setExpandedNodeIds] = useState(
     () =>
@@ -190,6 +191,10 @@ export function App() {
   const [treeError, setTreeError] = useState<string | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
+  const [showProjectPicker, setShowProjectPicker] = useState(false);
+  const [recentProjects, setRecentProjects] = useState<RecentProject[]>(() => getRecentProjects());
+  const [projectCreateName, setProjectCreateName] = useState("");
+  const [projectCreateError, setProjectCreateError] = useState<string | null>(null);
 
   const [editorTitle, setEditorTitle] = useState("");
   const [editorContent, setEditorContent] = useState("");
@@ -221,7 +226,7 @@ export function App() {
   const [pendingProvider, setPendingProvider] = useState<AiProviderKind | null>(null);
   const [cowriterPrompt, setCowriterPrompt] = useState("");
   const [cowriterState, setCowriterState] = useState<AsyncState>("idle");
-  const [cowriterStatus, setCowriterStatus] = useState("Ask for help grounded in local Palace search.");
+  const [cowriterStatus, setCowriterStatus] = useState("Ask for help grounded in local Vault search.");
   const [cowriterAnswer, setCowriterAnswer] = useState("");
   const [cowriterError, setCowriterError] = useState<string | null>(null);
   const [retrievalResults, setRetrievalResults] = useState<SearchChunkResult[]>([]);
@@ -241,10 +246,10 @@ export function App() {
   const onboardingScopeRef = useRef<string>(ONBOARDING_PREVIEW_SCOPE);
   const [workspacePrefs, setWorkspacePrefs] = useState<WorkspacePrefs>(() => readWorkspacePrefs());
 
-  const palaceFlatItems = useMemo(() => flattenPalaceItems(palaceTree), [palaceTree]);
-  const activeItem = useMemo<PalaceItemNode | null>(
-    () => palaceFlatItems.find((item) => item.id === activeItemId) ?? palaceFlatItems[0] ?? null,
-    [activeItemId, palaceFlatItems],
+  const vaultFlatItems = useMemo(() => flattenVaultItems(vaultTree), [vaultTree]);
+  const activeItem = useMemo<VaultItemNode | null>(
+    () => vaultFlatItems.find((item) => item.id === activeItemId) ?? vaultFlatItems[0] ?? null,
+    [activeItemId, vaultFlatItems],
   );
   const activeProvider = providerSettings?.activeProvider ?? "ollama";
   const activeProviderSettings = useMemo(
@@ -277,12 +282,12 @@ export function App() {
   const refreshTree = useCallback(
     async (selectItemId?: string) => {
       if (!project) return;
-      const tree = await loadPalaceTree(project.projectPath);
-      setPalaceTree(tree);
+      const tree = await loadVaultTree(project.projectPath);
+      setVaultTree(tree);
       if (selectItemId) {
         setActiveItemId(selectItemId);
-      } else if (!flattenPalaceItems(tree).some((item) => item.id === activeItemId)) {
-        const firstItem = flattenPalaceItems(tree)[0];
+      } else if (!flattenVaultItems(tree).some((item) => item.id === activeItemId)) {
+        const firstItem = flattenVaultItems(tree)[0];
         if (firstItem) setActiveItemId(firstItem.id);
       }
     },
@@ -352,7 +357,7 @@ export function App() {
     }));
   }
 
-  function loadItemIntoEditor(item: PalaceItemDetail) {
+  function loadItemIntoEditor(item: VaultItemDetail) {
     setActiveItemId(item.id);
     setEditorTitle(item.title);
     setEditorContent(item.content);
@@ -386,27 +391,10 @@ export function App() {
 
         setTauriState("awake");
 
-        try {
-          const metadata = await createDemoProject();
-          if (cancelled) return;
-          setProject(metadata);
-          setProjectError(null);
-
-          try {
-            const tree = await loadPalaceTree(metadata.projectPath);
-            if (cancelled) return;
-            setPalaceTree(tree);
-            setTreeError(null);
-            const firstItem = flattenPalaceItems(tree)[0];
-            if (firstItem) setActiveItemId(firstItem.id);
-          } catch (error) {
-            if (cancelled) return;
-            setTreeError(describeError(error));
-          }
-        } catch (error) {
-          if (cancelled) return;
-          setProjectError(describeError(error));
-        }
+        // Check if there are recent projects; if so, show the picker.
+        // The user can then choose to open an existing project, create a new one,
+        // or load the demo.
+        setShowProjectPicker(true);
       } catch {
         if (cancelled) return;
         setTauriState("browser");
@@ -423,6 +411,90 @@ export function App() {
     };
   }, []);
 
+  // ── Project loading helper ──
+
+  const loadProjectIntoWorkspace = useCallback(
+    async (metadata: ProjectMetadata) => {
+      setProject(metadata);
+      setProjectError(null);
+      setShowProjectPicker(false);
+      recordRecentProject(metadata);
+      setRecentProjects(getRecentProjects());
+
+      try {
+        const tree = await loadVaultTree(metadata.projectPath);
+        setVaultTree(tree);
+        setTreeError(null);
+        const firstItem = flattenVaultItems(tree)[0];
+        if (firstItem) setActiveItemId(firstItem.id);
+      } catch (error) {
+        setTreeError(describeError(error));
+      }
+    },
+    [],
+  );
+
+  // ── Project open/create handlers ──
+
+  const handleOpenExistingProject = useCallback(async () => {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Open Grimoire Project",
+      });
+      if (selected && typeof selected === "string") {
+        const metadata = await openProject(selected);
+        await loadProjectIntoWorkspace(metadata);
+      }
+    } catch (error) {
+      setProjectCreateError(describeError(error));
+    }
+  }, [loadProjectIntoWorkspace]);
+
+  const handleCreateProject = useCallback(async () => {
+    const name = projectCreateName.trim();
+    if (!name) {
+      setProjectCreateError("Enter a project name.");
+      return;
+    }
+    setProjectCreateError(null);
+    try {
+      const metadata = await createProject(name);
+      await loadProjectIntoWorkspace(metadata);
+      setProjectCreateName("");
+    } catch (error) {
+      setProjectCreateError(describeError(error));
+    }
+  }, [projectCreateName, loadProjectIntoWorkspace]);
+
+  const handleLoadDemo = useCallback(async () => {
+    setProjectCreateError(null);
+    try {
+      const metadata = await createDemoProject();
+      await loadProjectIntoWorkspace(metadata);
+    } catch (error) {
+      setProjectCreateError(describeError(error));
+    }
+  }, [loadProjectIntoWorkspace]);
+
+  const handleOpenRecentProject = useCallback(
+    async (path: string) => {
+      try {
+        const metadata = await openProject(path);
+        await loadProjectIntoWorkspace(metadata);
+      } catch (error) {
+        setProjectCreateError(describeError(error));
+        // Remove from recent list if it no longer exists
+        removeRecentProject(path);
+        setRecentProjects(getRecentProjects());
+      }
+    },
+    [loadProjectIntoWorkspace],
+  );
+
+  // ... rest of effects ...
+
   useEffect(() => {
     if (!activeItem) return;
     const selectedItem = activeItem;
@@ -433,7 +505,7 @@ export function App() {
       try {
         const item =
           currentProject && tauriState === "awake"
-            ? await getPalaceItem(currentProject.projectPath, selectedItem.id)
+            ? await getVaultItem(currentProject.projectPath, selectedItem.id)
             : fallbackDetail(selectedItem);
         if (cancelled) return;
         setLoadedItemId(item.id);
@@ -479,7 +551,7 @@ export function App() {
     const timer = window.setTimeout(async () => {
       try {
         setSaveState("saving");
-        const saved = await updatePalaceItem(
+        const saved = await updateVaultItem(
           project.projectPath,
           activeItem.id,
           editorTitle,
@@ -581,7 +653,7 @@ export function App() {
         const response = await searchChunks(project.projectPath, query, 8);
         setSearchResults(response.results);
       } else {
-        setSearchResults(browserSearch(palaceFlatItems, query));
+        setSearchResults(browserSearch(vaultFlatItems, query));
       }
       setSearchState("success");
     } catch (error) {
@@ -642,7 +714,7 @@ export function App() {
     setImportProgress(["Reading the bones"]);
     try {
       let lastItemId = "";
-      let lastItem: PalaceItemDetail | null = null;
+      let lastItem: VaultItemDetail | null = null;
       let importedCount = 0;
       let truncatedCount = 0;
       let skippedCount = 0;
@@ -808,7 +880,7 @@ export function App() {
         activeProvider,
         model,
         "Reply with exactly: OK",
-        "Provider connectivity test. Do not use Palace or Canvas content.",
+        "Provider connectivity test. Do not use Vault or Canvas content.",
       );
       setEngineState("success");
       setEngineStatus(
@@ -875,7 +947,7 @@ export function App() {
     if (activeProviderIsCloud && !activeProviderSettings?.disclosureAcceptedAt) {
       setDisclosureProvider(activeProvider);
       setCowriterState("failed");
-      setCowriterError("Accept the cloud model disclosure before sending Palace context.");
+      setCowriterError("Accept the cloud model disclosure before sending Vault context.");
       return;
     }
     if (activeProviderIsCloud && !activeProviderSettings?.apiKeyPresent) {
@@ -890,7 +962,7 @@ export function App() {
     setCowriterError(null);
     setCowriterAnswer("");
     setAnswerWardHits([]);
-    setCowriterStatus("Consulting the Palace");
+    setCowriterStatus("Consulting the Vault");
 
     try {
       const contextEditorContent = await ensureActiveEditorContext();
@@ -923,7 +995,7 @@ export function App() {
     }
 
     try {
-      const detail = await getPalaceItem(project.projectPath, activeItem.id);
+      const detail = await getVaultItem(project.projectPath, activeItem.id);
       loadItemIntoEditor(detail);
       return detail.content;
     } catch {
@@ -1046,8 +1118,8 @@ export function App() {
     }
   }
 
-  function selectFirstItemFromTree(tree: PalaceTreeResponse) {
-    const firstItem = flattenPalaceItems(tree)[0];
+  function selectFirstItemFromTree(tree: VaultTreeResponse) {
+    const firstItem = flattenVaultItems(tree)[0];
     setActiveItemId(firstItem?.id ?? "");
     if (!firstItem) {
       setEditorTitle("");
@@ -1060,23 +1132,23 @@ export function App() {
   async function handleArchiveItem(itemId = activeItem?.id ?? "") {
     if (!project || tauriState !== "awake" || !itemId) {
       setExportState("failed");
-      setExportStatus("Choose a Palace item before using Safe Remove.");
+      setExportStatus("Choose a Vault item before using Safe Remove.");
       return;
     }
-    const item = palaceFlatItems.find((candidate) => candidate.id === itemId);
+    const item = vaultFlatItems.find((candidate) => candidate.id === itemId);
     const title = item?.title ?? "this item";
     const confirmed = window.confirm(
-      `Archive "${title}"?\n\nArchived items are hidden from the Palace tree and search, but kept in the local database for future restore tooling.`,
+      `Archive "${title}"?\n\nArchived items are hidden from the Vault tree and search, but kept in the local database for future restore tooling.`,
     );
     if (!confirmed) return;
 
     setExportState("working");
     try {
-      const tree = await archivePalaceItem(project.projectPath, itemId);
-      setPalaceTree(tree);
+      const tree = await archiveVaultItem(project.projectPath, itemId);
+      setVaultTree(tree);
       selectFirstItemFromTree(tree);
       setExportState("success");
-      setExportStatus(`Safely removed ${title}. It is hidden from Palace search/tree but retained in the local database.`);
+      setExportStatus(`Safely removed ${title}. It is hidden from Vault search/tree but retained in the local database.`);
     } catch (error) {
       setExportState("failed");
       setExportStatus(describeError(error));
@@ -1086,10 +1158,10 @@ export function App() {
   async function handleDeleteItem(itemId = activeItem?.id ?? "") {
     if (!project || tauriState !== "awake" || !itemId) {
       setExportState("failed");
-      setExportStatus("Choose a Palace item before deleting.");
+      setExportStatus("Choose a Vault item before deleting.");
       return;
     }
-    const item = palaceFlatItems.find((candidate) => candidate.id === itemId);
+    const item = vaultFlatItems.find((candidate) => candidate.id === itemId);
     const title = item?.title ?? "this item";
     const confirmed = window.confirm(
       `Permanently delete "${title}"?\n\nThis removes the item and its search chunks from the local project database. This cannot be undone.`,
@@ -1098,8 +1170,8 @@ export function App() {
 
     setExportState("working");
     try {
-      const tree = await deletePalaceItem(project.projectPath, itemId);
-      setPalaceTree(tree);
+      const tree = await deleteVaultItem(project.projectPath, itemId);
+      setVaultTree(tree);
       selectFirstItemFromTree(tree);
       setExportState("success");
       setExportStatus(`Deleted ${title}.`);
@@ -1204,12 +1276,103 @@ export function App() {
         </div>
       </header>
 
+      {showProjectPicker ? (
+        <section className="project-picker" aria-label="Project picker">
+          <div className="project-picker-inner">
+            <div className="project-picker-header">
+              <BookOpenText size={32} aria-hidden="true" />
+              <h2>Welcome to Grimoire</h2>
+              <p className="project-picker-subtitle">
+                A local-first writing studio with memory for fiction writers.
+              </p>
+            </div>
+
+            <div className="project-picker-actions">
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={handleCreateProject}
+              >
+                <Plus size={16} aria-hidden="true" />
+                Create New Project
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={handleOpenExistingProject}
+              >
+                <Archive size={16} aria-hidden="true" />
+                Open Existing Project
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={handleLoadDemo}
+              >
+                <WandSparkles size={16} aria-hidden="true" />
+                Load Demo Project
+              </button>
+            </div>
+
+            {recentProjects.length > 0 && (
+              <div className="project-picker-recent">
+                <h3>Recent Projects</h3>
+                <ul className="recent-list">
+                  {recentProjects.map((rp) => (
+                    <li key={rp.path}>
+                      <button
+                        className="recent-project-button"
+                        type="button"
+                        onClick={() => handleOpenRecentProject(rp.path)}
+                      >
+                        <FileText size={14} aria-hidden="true" />
+                        <div>
+                          <span className="recent-name">{rp.name}</span>
+                          <span className="recent-path">{compactPath(rp.path)}</span>
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="project-picker-create">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleCreateProject();
+                }}
+              >
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="Project name"
+                  value={projectCreateName}
+                  onChange={(e) => setProjectCreateName(e.target.value)}
+                />
+                <button className="button button-primary" type="submit">
+                  Create
+                </button>
+              </form>
+            </div>
+
+            {projectCreateError && (
+              <p className="project-picker-error" role="alert">
+                <AlertTriangle size={14} aria-hidden="true" />
+                {projectCreateError}
+              </p>
+            )}
+          </div>
+        </section>
+      ) : (
+
       <section className="workspace" aria-label="Grimoire workspace">
-        <aside className="panel palace-panel" aria-label="The Palace">
+        <aside className="panel vault-panel" aria-label="The Vault">
           {workspacePrefs.leftCollapsed ? (
             <CollapsedRail
               icon={<Database size={18} aria-hidden="true" />}
-              label="Open Palace"
+              label="Open Vault"
               onExpand={() => setSideCollapsed("left", false)}
               side="left"
             />
@@ -1220,19 +1383,19 @@ export function App() {
                   <button
                     className="icon-button panel-collapse-button"
                     type="button"
-                    aria-label="Collapse Palace"
+                    aria-label="Collapse Vault"
                     onClick={() => setSideCollapsed("left", true)}
-                    title="Collapse Palace"
+                    title="Collapse Vault"
                   >
                     <ChevronLeft size={16} aria-hidden="true" />
                   </button>
                 }
                 icon={<Database size={17} aria-hidden="true" />}
-                title="The Palace"
+                title="The Vault"
                 subtitle={project ? "SQLite project ready" : "Wings / Halls / Rooms / Drawers"}
               />
 
-              <div className="panel-scroll palace-scroll">
+              <div className="panel-scroll vault-scroll">
                 <div className={projectError ? "project-card warning" : "project-card"}>
                   <span>
                     {project
@@ -1246,17 +1409,17 @@ export function App() {
                   <strong>{project ? project.name : projectLoading ? "Preparing SQLite" : "Static demo"}</strong>
                   <small>
                     {project
-                      ? `${compactPath(project.projectPath)} - ${palaceTree.itemCount} items`
+                      ? `${compactPath(project.projectPath)} - ${vaultTree.itemCount} items`
                       : treeError ?? projectError ?? "The desktop shell will create a .grimoire folder here."}
                   </small>
                 </div>
 
-                <form className="palace-search" onSubmit={handleSearch}>
+                <form className="vault-search" onSubmit={handleSearch}>
                   <Search size={15} aria-hidden="true" />
                   <input
                     type="search"
-                    placeholder="Search Palace"
-                    aria-label="Search Palace"
+                    placeholder="Search Vault"
+                    aria-label="Search Vault"
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
                   />
@@ -1272,8 +1435,8 @@ export function App() {
                 ) : null}
                 {searchError ? <p className="inline-error">{searchError}</p> : null}
 
-                <PalaceTree
-                  tree={palaceTree}
+                <VaultTree
+                  tree={vaultTree}
                   activeItemId={activeItem?.id ?? ""}
                   expandedNodeIds={expandedNodeIds}
                   onArchiveItem={handleArchiveItem}
@@ -1289,7 +1452,7 @@ export function App() {
           <div className="canvas-toolbar">
             <div>
               <p className="eyebrow">The Canvas</p>
-              <p className="path-label">{activeItem?.path ?? "The Palace"}</p>
+              <p className="path-label">{activeItem?.path ?? "The Vault"}</p>
             </div>
             <div className="canvas-stats" aria-live="polite">
               <span>{editorWordCount} words</span>
@@ -1562,10 +1725,10 @@ export function App() {
               className="compact-textarea"
               value={cowriterPrompt}
               onChange={(event) => setCowriterPrompt(event.target.value)}
-              placeholder="Ask a grounded question across the Palace"
+              placeholder="Ask a grounded question across the Vault"
             />
             <p className="tool-hint">
-              Searches the whole Palace first, then uses the active Canvas as extra context when it helps.
+              Searches the whole Vault first, then uses the active Canvas as extra context when it helps.
             </p>
             <button className="button button-primary full-width" type="button" onClick={() => runCowriter()}>
               {cowriterState === "working" ? <Loader2 size={16} /> : <Sparkles size={16} />}
@@ -1659,7 +1822,7 @@ export function App() {
             onToggle={toggleToolSection}
           >
             <p>
-              Grimoire is an independent Witch Daddy Labs project. The Palace memory
+              Grimoire is an independent Witch Daddy Labs project. The Vault memory
               model is inspired by the MIT-licensed MemPalace project; Grimoire is not
               affiliated with MemPalace.
             </p>
@@ -1669,6 +1832,7 @@ export function App() {
           )}
         </aside>
       </section>
+      )}
 
       {showOnboarding ? (
         <OnboardingOverlay
@@ -1712,7 +1876,7 @@ export function App() {
   );
 }
 
-function PalaceTree({
+function VaultTree({
   tree,
   activeItemId,
   expandedNodeIds,
@@ -1720,7 +1884,7 @@ function PalaceTree({
   onToggle,
   onSelectItem,
 }: {
-  tree: PalaceTreeResponse;
+  tree: VaultTreeResponse;
   activeItemId: string;
   expandedNodeIds: Set<string>;
   onArchiveItem: (itemId: string) => void;
@@ -1729,15 +1893,15 @@ function PalaceTree({
 }) {
   if (tree.itemCount === 0) {
     return (
-      <div className="palace-empty">
-        <strong>The Palace is quiet</strong>
+      <div className="vault-empty">
+        <strong>The Vault is quiet</strong>
         <span>Create your first Wing or import writing to begin.</span>
       </div>
     );
   }
 
   return (
-    <nav className="palace-tree" aria-label="Palace memory">
+    <nav className="vault-tree" aria-label="Vault memory">
       {tree.wings.map((wing) => (
         <WingBranch
           key={wing.id}
@@ -1817,7 +1981,7 @@ function WingBranch({
   onToggle,
   onSelectItem,
 }: {
-  wing: PalaceWingNode;
+  wing: VaultWingNode;
   activeItemId: string;
   expandedNodeIds: Set<string>;
   onArchiveItem: (itemId: string) => void;
@@ -1857,7 +2021,7 @@ function HallBranch({
   onToggle,
   onSelectItem,
 }: {
-  hall: PalaceHallNode;
+  hall: VaultHallNode;
   activeItemId: string;
   expandedNodeIds: Set<string>;
   onArchiveItem: (itemId: string) => void;
@@ -1897,7 +2061,7 @@ function RoomBranch({
   onToggle,
   onSelectItem,
 }: {
-  room: PalaceRoomNode;
+  room: VaultRoomNode;
   activeItemId: string;
   expandedNodeIds: Set<string>;
   onArchiveItem: (itemId: string) => void;
@@ -1937,7 +2101,7 @@ function DrawerBranch({
   onToggle,
   onSelectItem,
 }: {
-  drawer: PalaceDrawerNode;
+  drawer: VaultDrawerNode;
   activeItemId: string;
   expandedNodeIds: Set<string>;
   onArchiveItem: (itemId: string) => void;
@@ -2027,7 +2191,7 @@ function ResultList({
       {results.slice(0, 5).map((result) => (
         <button key={result.chunkId} className="result-item" type="button" onClick={() => onSelect(result.itemId)}>
           <strong>{result.title}</strong>
-          <span>{result.palacePath}</span>
+          <span>{result.vaultPath}</span>
           <small>{result.confidence} confidence</small>
         </button>
       ))}
@@ -2043,7 +2207,7 @@ function CitationList({ results }: { results: SearchChunkResult[] }) {
       <strong>Citations</strong>
       {results.slice(0, 3).map((result, index) => (
         <span key={result.chunkId}>
-          [{index + 1}] {result.palacePath}
+          [{index + 1}] {result.vaultPath}
         </span>
       ))}
     </div>
@@ -2135,7 +2299,7 @@ function OnboardingOverlay({
         </div>
         <div className="onboarding-status">
           <Database size={15} aria-hidden="true" />
-          {projectReady ? "Palace project ready" : "Preparing local Palace"}
+          {projectReady ? "Vault project ready" : "Preparing local Vault"}
         </div>
         <OnboardingAction
           activeProvider={activeProvider}
@@ -2202,7 +2366,7 @@ function OnboardingAction({
   onSelectProvider: (provider: AiProviderKind) => void;
   onWardPresetSelect: (value: string) => void;
 }) {
-  if (step === "palace") {
+  if (step === "vault") {
     return (
       <div className="onboarding-action-card">
         <strong>{projectReady ? projectName : "Preparing project"}</strong>
@@ -2248,7 +2412,7 @@ function OnboardingAction({
             />
           </label>
         </div>
-        <span className="tool-hint">Markdown and text files are imported into the Palace Feed.</span>
+        <span className="tool-hint">Markdown and text files are imported into the Vault Feed.</span>
         <span className={`operation-status ${importState}`}>{importStatus}</span>
       </form>
     );
@@ -2346,15 +2510,15 @@ function treeDepthStyle(level: number) {
   return { "--tree-indent": `${level * 15}px` } as CSSProperties;
 }
 
-function countWingItems(wing: PalaceWingNode) {
+function countWingItems(wing: VaultWingNode) {
   return wing.halls.reduce((count, hall) => count + countHallItems(hall), 0);
 }
 
-function countHallItems(hall: PalaceHallNode) {
+function countHallItems(hall: VaultHallNode) {
   return hall.rooms.reduce((count, room) => count + countRoomItems(room), 0);
 }
 
-function countRoomItems(room: PalaceRoomNode) {
+function countRoomItems(room: VaultRoomNode) {
   return room.drawers.reduce((count, drawer) => count + drawer.items.length, 0);
 }
 
@@ -2393,7 +2557,7 @@ function StatusChip({
   return <span className={`status-chip ${tone}`}>{label}</span>;
 }
 
-function fallbackDetail(item: PalaceItemNode): PalaceItemDetail {
+function fallbackDetail(item: VaultItemNode): VaultItemDetail {
   return {
     id: item.id,
     title: item.title,
@@ -2406,7 +2570,7 @@ function fallbackDetail(item: PalaceItemNode): PalaceItemDetail {
   };
 }
 
-function browserSearch(items: PalaceItemNode[], query: string): SearchChunkResult[] {
+function browserSearch(items: VaultItemNode[], query: string): SearchChunkResult[] {
   const lowerQuery = query.toLowerCase();
   return items
     .filter((item) => `${item.title} ${item.content ?? ""} ${item.path}`.toLowerCase().includes(lowerQuery))
@@ -2416,7 +2580,7 @@ function browserSearch(items: PalaceItemNode[], query: string): SearchChunkResul
       itemId: item.id,
       title: item.title,
       itemType: item.itemType,
-      palacePath: item.path,
+      vaultPath: item.path,
       snippet: item.content?.slice(0, 180) ?? "",
       score: 1,
       confidence: "low",
@@ -2425,12 +2589,12 @@ function browserSearch(items: PalaceItemNode[], query: string): SearchChunkResul
 
 function buildGroundedContext(
   results: SearchChunkResult[],
-  activeItem: PalaceItemNode | null,
+  activeItem: VaultItemNode | null,
   editorContent: string,
 ) {
   const sources = results
     .slice(0, 5)
-    .map((result, index) => `[${index + 1}] ${result.palacePath}\n${result.snippet}`)
+    .map((result, index) => `[${index + 1}] ${result.vaultPath}\n${result.snippet}`)
     .join("\n\n");
   const active = activeItem
     ? `Active Canvas: ${activeItem.path}\n${editorContent.slice(0, 1600)}`
@@ -2438,7 +2602,7 @@ function buildGroundedContext(
   return [
     "Use only the local context below. If context is thin, say so plainly.",
     active,
-    sources ? `Retrieved Palace sources:\n${sources}` : "Retrieved Palace sources: none.",
+    sources ? `Retrieved Vault sources:\n${sources}` : "Retrieved Vault sources: none.",
     "Answer with citations like [1] when using retrieved sources. Do not insert text into the Canvas.",
   ].join("\n\n");
 }
@@ -2450,7 +2614,7 @@ function retrievalLabels(state: AsyncState, status: string) {
   if (state === "success") {
     return [status, "Citations ready", "Insertion requires user action"];
   }
-  return ["Consulting the Palace", "Reading canon traces", "Checking slop wards", "Composing grounded answer"];
+  return ["Consulting the Vault", "Reading canon traces", "Checking slop wards", "Composing grounded answer"];
 }
 
 function providerReady(
