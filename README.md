@@ -78,7 +78,7 @@ The Vault is stored entirely within your project folder. It does not install to 
 
 ### External Vault Connector (optional)
 
-For users who also run external knowledge stores (e.g. MemPalace), Grimoire can optionally connect to browse them read-only. This is separate from your project's own Vault and is entirely opt-in.
+For users who also keep compatible external YAML knowledge stores, Grimoire can optionally connect to browse them read-only. This is separate from your project's own Vault and is entirely opt-in.
 
 ## Co-Writer
 
@@ -139,11 +139,14 @@ grimoire/
 │   └── app/
 │       ├── App.tsx         # Main app shell
 │       ├── ai.ts           # AI provider integration
-│       ├── palace.ts       # Vault data layer (legacy name; rename in progress)
+│       ├── vault.ts        # Vault data layer
 │       └── project.ts      # Project open/create
 ├── src-tauri/              # Backend (Rust)
 │   └── src/
-│       └── main.rs         # Tauri commands (split in progress)
+│       ├── main.rs         # Tauri command registration
+│       ├── db.rs           # SQLite/project persistence
+│       ├── models.rs       # Shared type contracts
+│       └── external_vault.rs # Read-only external YAML browsing
 ├── docs/                   # Technical documentation
 ├── DESIGN.md               # Design system spec (tokens, principles, anti-references)
 ├── PRODUCT.md              # Product definition
@@ -154,12 +157,12 @@ grimoire/
 
 ## Status
 
-Grimoire is **pre-1.0** software. The current build compiles and runs as a signed DMG, but the frontend is still transitioning from demo to real working data. Active development is underway to:
+Grimoire is **pre-1.0** software. The current build compiles, runs locally, and is being prepared for its first unsigned public DMG release. Completed foundations include:
 
-- Wire project open/create workflow (replacing hardcoded demo data)
-- Split monolithic frontend/backend into feature modules
-- Complete Vault decoupling and external vault connector
-- Publish first public GitHub Release with installable DMG
+- Project open/create workflow replacing hardcoded demo startup
+- Frontend/backend module split
+- Grimoire Vault decoupling, manual hierarchy creation, JSON export, and read-only external YAML browsing
+- Sprint 4 packaging work: bundle identifier, app version, DMG workflow, and release documentation
 
 See the [GitHub Issues](https://github.com/witchdaddylabs/grimoire/issues) for current work items.
 
@@ -168,7 +171,5 @@ See the [GitHub Issues](https://github.com/witchdaddylabs/grimoire/issues) for c
 MIT. See [LICENSE](LICENSE).
 
 ## Credits
-
-The Grimoire Vault memory model was inspired by the open-source [MemPalace](https://github.com/MemPalace/mempalace) project. Grimoire is an independent project and is not affiliated with or endorsed by MemPalace. See [NOTICE.md](NOTICE.md) for attribution details.
 
 Built by [Witch Daddy Labs](https://witchdaddylabs.com).

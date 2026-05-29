@@ -1,8 +1,8 @@
 {
   "name": "grimoire",
   "private": true,
-  "version": "0.1.0",
-  "description": "A local-first macOS writing studio with Palace memory and optional AI assistance.",
+  "version": "0.2.0",
+  "description": "A local-first macOS writing studio with Grimoire Vault memory and optional AI assistance.",
   "author": "Witch Daddy Labs",
   "license": "MIT",
   "homepage": "https://github.com/witchdaddylabs/grimoire",
@@ -27,15 +27,15 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/api": "2.10.1",
+    "@tauri-apps/plugin-dialog": "2.7.1",
     "lucide-react": "^1.11.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.4",
-    "@tauri-apps/cli": "^2.10.1",
+    "@tauri-apps/cli": "2.10.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

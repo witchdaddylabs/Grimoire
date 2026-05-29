@@ -1,28 +1,23 @@
-name: Release DMG
+name: Build & Release DMG
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-macos-dmg:
-    name: Build ${{ matrix.arch }} DMG
-    runs-on: ${{ matrix.runner }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: apple-silicon
-            runner: macos-15
-            target: aarch64-apple-darwin
-          - arch: intel
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
+    name: Build unsigned macOS DMG
+    runs-on: macos-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -36,48 +31,43 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
       - name: Install frontend dependencies
         run: npm ci
 
       - name: Build unsigned DMG
-        run: npm run package:mac -- --target ${{ matrix.target }}
+        run: npm run tauri -- build --bundles dmg --ci
+        env:
+          TAURI_SIGNING_IDENTITY: ""
 
-      - name: Generate checksums
-        run: shasum -a 256 src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg > checksums-${{ matrix.arch }}-sha256.txt
+      - name: Generate checksum
+        run: shasum -a 256 src-tauri/target/release/bundle/dmg/*.dmg > grimoire-dmg-sha256.txt
 
-      - name: Upload release artifacts
+      - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: grimoire-${{ matrix.arch }}
+          name: Grimoire-dmg
           path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-            checksums-${{ matrix.arch }}-sha256.txt
-
-  publish-draft-release:
-    name: Publish draft release
-    runs-on: ubuntu-latest
-    needs: build-macos-dmg
-
-    steps:
-      - name: Download release artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: grimoire-*
-          path: release-artifacts
-          merge-multiple: true
+            src-tauri/target/release/bundle/dmg/*.dmg
+            grimoire-dmg-sha256.txt
 
       - name: Create draft GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           draft: true
           prerelease: true
-          files: release-artifacts/*
+          files: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            grimoire-dmg-sha256.txt
           body: |
-            This is an unsigned, not-notarized community build of Grimoire.
+            Grimoire is a local-first macOS writing studio for novelists, storytellers, and world-builders.
 
-            macOS may block first launch. After the first blocked launch, open System Settings > Privacy & Security and choose Open Anyway if you trust this release.
+            This is an unsigned, not-notarized community build.
 
-            Download only from the official GitHub release page.
+            Install:
+            1. Download the DMG attached to this release.
+            2. Open the DMG and drag Grimoire to Applications.
+            3. If macOS blocks first launch, open System Settings > Privacy & Security and choose Open Anyway.
+
+            Only bypass Gatekeeper if you downloaded this build from the official Witch Daddy Labs GitHub release.
