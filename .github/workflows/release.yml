@@ -15,7 +15,7 @@ env:
 
 jobs:
   build-macos-dmg:
-    name: Build unsigned macOS DMG
+    name: Build macOS DMG
     runs-on: macos-latest
     timeout-minutes: 45
 
@@ -35,16 +35,33 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build unsigned DMG
-        run: npm run tauri -- build --bundles dmg --ci
-        env:
-          TAURI_SIGNING_IDENTITY: ""
+      - name: Build Tauri app (ad-hoc signed)
+        run: npm run tauri -- build --ci
 
-      - name: Ad-hoc sign the DMG
+      - name: Create DMG with uninstall-quarantine helper
         run: |
-          DMG_PATH=$(ls src-tauri/target/release/bundle/dmg/*.dmg | head -1)
-          codesign -s - --timestamp=none --preserve-metadata=identifier,entitlements "$DMG_PATH"
-          echo "Signed: $DMG_PATH"
+          APP_PATH="src-tauri/target/release/bundle/macos/Grimoire.app"
+          STAGING="$(mktemp -d)"
+          
+          cp -R "$APP_PATH" "$STAGING/Grimoire.app"
+          ln -s /Applications "$STAGING/Applications"
+          
+          # Simple double-click script to remove Gatekeeper quarantine
+          cat > "$STAGING/🔓 Unlock-Grimoire.command" << 'SCRIPT'
+          #!/bin/bash
+          xattr -dr com.apple.quarantine /Applications/Grimoire.app 2>/dev/null
+          echo ""
+          echo "✅ Gatekeeper quarantine removed."
+          echo "You can now open Grimoire from Applications."
+          echo ""
+          open -a Grimoire 2>/dev/null
+          SCRIPT
+          chmod +x "$STAGING/🔓 Unlock-Grimoire.command"
+          
+          DMG_PATH="src-tauri/target/release/bundle/dmg/Grimoire_aarch64.dmg"
+          mkdir -p "$(dirname "$DMG_PATH")"
+          hdiutil create -srcfolder "$STAGING" -volname "Grimoire" -fs HFS+ -format UDZO -size 50m "$DMG_PATH"
+          rm -rf "$STAGING"
 
       - name: Generate checksum
         run: shasum -a 256 src-tauri/target/release/bundle/dmg/*.dmg > grimoire-dmg-sha256.txt
@@ -57,23 +74,23 @@ jobs:
             src-tauri/target/release/bundle/dmg/*.dmg
             grimoire-dmg-sha256.txt
 
-      - name: Create draft GitHub release
+      - name: Create GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          draft: false
           prerelease: true
           files: |
             src-tauri/target/release/bundle/dmg/*.dmg
             grimoire-dmg-sha256.txt
           body: |
-            Grimoire is a local-first macOS writing studio for novelists, storytellers, and world-builders.
+            ## Installation
 
-            This build is ad-hoc signed (no Apple Developer account required).
+            1. Open the DMG
+            2. Drag **Grimoire** to **Applications**
+            3. In the DMG, double-click **🔓 Unlock-Grimoire.command**
+            4. Open Grimoire from Applications — no Gatekeeper warnings!
 
-            Install:
-            1. Download the DMG attached to this release.
-            2. Open the DMG and drag Grimoire to Applications.
-            3. On first launch, if macOS shows a warning, right-click the app and choose Open, or go to System Settings > Privacy & Security and click Open Anyway.
+            **Why?** This build uses ad-hoc signing (no Apple Developer account). macOS flags ad-hoc-only apps from the internet. The unlock script removes this flag so it opens normally.
 
-            Only bypass Gatekeeper if you downloaded this build from the official Witch Daddy Labs GitHub release.
+            Only install from the official [Witch Daddy Labs](https://github.com/witchdaddylabs/Grimoire) release.
