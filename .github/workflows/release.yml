@@ -38,33 +38,45 @@ jobs:
       - name: Build Tauri app (ad-hoc signed)
         run: npm run tauri -- build --ci
 
-      - name: Create DMG with uninstall-quarantine helper
+      - name: Create DMG with unlock helper
         run: |
-          APP_PATH="src-tauri/target/release/bundle/macos/Grimoire.app"
-          STAGING="$(mktemp -d)"
+          set -e
+          # Find the built app
+          APP_PATH=$(find src-tauri/target/release/bundle/macos -name "*.app" -maxdepth 1 | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: No .app found in bundle/macos"
+            find src-tauri/target/release/bundle -name "*.app" 2>/dev/null
+            exit 1
+          fi
+          APP_NAME=$(basename "$APP_PATH" .app)
+          echo "Found app: $APP_PATH"
           
-          cp -R "$APP_PATH" "$STAGING/Grimoire.app"
+          STAGING="$(mktemp -d)"
+          cp -R "$APP_PATH" "$STAGING/${APP_NAME}.app"
           ln -s /Applications "$STAGING/Applications"
           
-          # Simple double-click script to remove Gatekeeper quarantine
-          cat > "$STAGING/🔓 Unlock-Grimoire.command" << 'SCRIPT'
+          # Create unlock script
+          SCRIPT_PATH="$STAGING/Unlock-${APP_NAME}.command"
+          cat > "$SCRIPT_PATH" << ENDSCRIPT
           #!/bin/bash
-          xattr -dr com.apple.quarantine /Applications/Grimoire.app 2>/dev/null
-          echo ""
+          xattr -dr com.apple.quarantine /Applications/${APP_NAME}.app 2>/dev/null
           echo "✅ Gatekeeper quarantine removed."
-          echo "You can now open Grimoire from Applications."
-          echo ""
-          open -a Grimoire 2>/dev/null
-          SCRIPT
-          chmod +x "$STAGING/🔓 Unlock-Grimoire.command"
+          echo "You can now open ${APP_NAME} from Applications."
+          open -a "${APP_NAME}" 2>/dev/null
+          ENDSCRIPT
+          chmod +x "$SCRIPT_PATH"
           
-          DMG_PATH="src-tauri/target/release/bundle/dmg/Grimoire_aarch64.dmg"
-          mkdir -p "$(dirname "$DMG_PATH")"
-          hdiutil create -srcfolder "$STAGING" -volname "Grimoire" -fs HFS+ -format UDZO -size 50m "$DMG_PATH"
+          # Create DMG
+          mkdir -p src-tauri/target/release/bundle/dmg
+          DMG_NAME="${APP_NAME}_aarch64.dmg"
+          hdiutil create -srcfolder "$STAGING" -volname "$APP_NAME" -fs HFS+ -format UDZO -size 50m "src-tauri/target/release/bundle/dmg/${DMG_NAME}"
           rm -rf "$STAGING"
+          echo "Created: src-tauri/target/release/bundle/dmg/${DMG_NAME}"
 
       - name: Generate checksum
-        run: shasum -a 256 src-tauri/target/release/bundle/dmg/*.dmg > grimoire-dmg-sha256.txt
+        run: |
+          DMG=$(ls src-tauri/target/release/bundle/dmg/*.dmg | head -1)
+          shasum -a 256 "$DMG" > grimoire-dmg-sha256.txt
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
@@ -80,17 +92,17 @@ jobs:
         with:
           draft: false
           prerelease: true
-          files: |
-            src-tauri/target/release/bundle/dmg/*.dmg
-            grimoire-dmg-sha256.txt
           body: |
             ## Installation
 
             1. Open the DMG
-            2. Drag **Grimoire** to **Applications**
-            3. In the DMG, double-click **🔓 Unlock-Grimoire.command**
-            4. Open Grimoire from Applications — no Gatekeeper warnings!
+            2. Drag the app to **Applications**
+            3. In the DMG, double-click **Unlock-Grimoire.command** — removes the Gatekeeper flag
+            4. Open from Applications — no more warnings!
 
-            **Why?** This build uses ad-hoc signing (no Apple Developer account). macOS flags ad-hoc-only apps from the internet. The unlock script removes this flag so it opens normally.
+            **Why the unlock step?** This build uses ad-hoc signing (no Apple Developer account). macOS flags downloaded apps from the internet. The unlock script removes this.
 
             Only install from the official [Witch Daddy Labs](https://github.com/witchdaddylabs/Grimoire) release.
+          files: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            grimoire-dmg-sha256.txt
