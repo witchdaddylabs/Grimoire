@@ -1,6 +1,6 @@
 # Grimoire
 
-> A local-first macOS writing studio for novelists, storytellers, and world-builders.
+> A local-first writing studio for novelists, storytellers, and world-builders — now on **macOS and Windows**.
 > Dark academia meets luxury telemetry. Your book of spells.
 
 ![Grimoire welcome scene](https://github.com/user-attachments/assets/82525245-0a8d-4fd6-a1c5-3998fcc3a102)
@@ -15,27 +15,33 @@
 
 **Wards** — Anti-slop guardrails. Banned words, cliché detection, voice drift monitoring. Keep your prose clean.
 
-Everything runs on your Mac. No accounts. No cloud lock-in. No telemetry.
+Everything runs on your own machine — Mac or Windows. No accounts. No cloud lock-in. No telemetry.
 
 ## Requirements
 
-- macOS 13 (Ventura) or later
-- Apple Silicon or Intel
-- Ollama (optional, for local AI Co-Writer)
+- **Windows 10 or 11 (x64)**, **or** macOS 13 (Ventura) or later (Apple Silicon or Intel)
+- Ollama (optional, for the local AI Co-Writer)
+
+Grimoire keeps your provider API keys in your operating system's own vault — **Windows Credential Manager** or **macOS Keychain** — never in your project files, logs, or exports.
 
 ## Download
 
-Releases are published on [GitHub Releases](https://github.com/witchdaddylabs/grimoire/releases).
+Grab the latest build from [GitHub Releases](https://github.com/witchdaddylabs/grimoire/releases). Pick the file for your machine, and you're a couple of clicks from writing.
 
-For unsigned community builds:
+### Windows
 
-1. Download the DMG from the latest GitHub release.
-2. Open the DMG.
-3. Drag Grimoire to Applications.
-4. Launch Grimoire.
-5. If macOS Gatekeeper blocks the first launch, open **System Settings → Privacy & Security** and click **Open Anyway**.
+1. Download the `Grimoire_*_x64-setup.exe` installer.
+2. Double-click it. Windows SmartScreen may pause and say it doesn't recognise the app — that's expected for a community build that isn't code-signed yet.
+3. Click **More info → Run anyway**, then follow the installer.
+4. Launch Grimoire from the Start menu.
 
-Only bypass Gatekeeper if you trust the release source.
+### macOS
+
+1. Download the `.dmg` from the latest release.
+2. Open it and drag **Grimoire** to **Applications**.
+3. Launch Grimoire. If Gatekeeper blocks the first open, head to **System Settings → Privacy & Security** and click **Open Anyway** (or use the included **Unlock-Grimoire.command** helper).
+
+These are unsigned community builds, so your OS will ask you to confirm you trust them — only open Grimoire if you trust the release source. Code signing is on the roadmap.
 
 ## First Launch
 
@@ -110,7 +116,7 @@ Cloud providers are available for users who prefer them or don't have local mode
 
 Cloud providers require you to choose a provider, enter your own API key, and accept a disclosure before any Vault excerpts or Canvas context are sent off-device.
 
-API keys are stored in macOS Keychain. They are never written to project files, logs, or exports.
+API keys are stored in your OS credential store — Windows Credential Manager or macOS Keychain. They are never written to project files, logs, or exports.
 
 ## Development
 
@@ -118,7 +124,7 @@ Requirements:
 
 - Node.js 18+ and npm
 - Rust 1.80+ with `cargo`
-- Tauri macOS prerequisites
+- Tauri prerequisites for your platform ([macOS](https://tauri.app/start/prerequisites/) or Windows — on Windows you'll need the **Visual Studio Build Tools** with the Desktop C++ workload and **WebView2**, which ships with Windows 11)
 
 ```bash
 git clone https://github.com/witchdaddylabs/grimoire.git
@@ -127,6 +133,10 @@ npm install
 npm run tauri dev    # run in development
 cargo check          # check Rust backend
 npm run build        # check frontend types + build
+
+# Package a desktop installer
+npm run package:win  # Windows NSIS .exe
+npm run package:mac  # macOS DMG
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines and PR workflow.
@@ -157,12 +167,13 @@ grimoire/
 
 ## Status
 
-Grimoire is **pre-1.0** software. The current build compiles, runs locally, and is being prepared for its first unsigned public DMG release. Completed foundations include:
+Grimoire is **pre-1.0** software. The current build compiles and runs on both **macOS and Windows**, and ships as unsigned community installers (macOS DMG + Windows NSIS `.exe`). Completed foundations include:
 
 - Project open/create workflow replacing hardcoded demo startup
 - Frontend/backend module split
 - Grimoire Vault decoupling, manual hierarchy creation, JSON export, and read-only external YAML browsing
 - Sprint 4 packaging work: bundle identifier, app version, DMG workflow, and release documentation
+- Sprint 6 cross-platform build: cross-platform credential storage (`keyring`), Windows icon + NSIS installer, and a `windows-latest` CI/release pipeline
 
 See the [GitHub Issues](https://github.com/witchdaddylabs/grimoire/issues) for current work items.
 

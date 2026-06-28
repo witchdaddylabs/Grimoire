@@ -197,7 +197,7 @@ export function CoWriterPanel(props: CoWriterPanelProps) {
                 <span className={props.activeProviderSettings ? "engine-dot online" : "engine-dot"} />
                 {props.activeProviderSettings?.apiKeyPresent ? "API key saved" : "No API key saved"}
               </div>
-              <p className="tool-hint">macOS may ask for Keychain permission because Grimoire stores API keys there instead of inside your project files.</p>
+              <p className="tool-hint">Your system may ask for permission to use its secure credential store (macOS Keychain or Windows Credential Manager) because Grimoire saves API keys there instead of inside your project files.</p>
               <form className="tool-form" onSubmit={props.onApiKeySave}>
                 <input className="compact-input" type="password" autoComplete="off" value={props.apiKeyDraft} onChange={(e) => props.onApiKeyDraftChange(e.target.value)} placeholder={`Paste ${providerLabels[props.activeProvider]} API key`} />
                 <div className="inline-actions">

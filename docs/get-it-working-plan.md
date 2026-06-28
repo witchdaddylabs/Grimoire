@@ -1,7 +1,7 @@
 # Grimoire — Get It Working Plan
 
 > **Date:** 2026-06-28
-> **V0.2.4 current state** — Paused after Sprint 5 (UI overhaul). Tauri v2 · React 19 · TypeScript 6 · Vite 8 · Tailwind CSS 4 · Rust · SQLite · FTS
+> **v0.3.0 current state** — Sprint 6 (cross-platform Windows build) landed on top of Sprint 5 (UI overhaul). Tauri v2 · React 19 · TypeScript 6 · Vite 8 · Tailwind CSS 4 · Rust · SQLite · FTS
 > **Alchemist lessons applied** — Cross-platform Tauri v2 build proven, no Apple dev account required, unsigned DMG/MSI is fine.
 > **Target:** Shippable v1.0 for macOS + Windows
 
@@ -24,25 +24,29 @@ Grimoire is the same stack. The codebase is in better shape than Alchemist was a
 
 ## Phase 1 — Windows Build (Sprint 6)
 
-**Goal:** Grimoire compiles and runs on Windows. MSI installer published.
+**Goal:** Grimoire compiles and runs on Windows. NSIS `.exe` installer published.
 
 **Target branch:** `sprint6/windows-build`
 
 ### Checklist
 
-- [ ] Add Windows build target to `tauri.conf.json`:
+- [x] **Make the secret layer cross-platform (the real blocker).** Replaced macOS-only
+      `security-framework` with the `keyring` crate (`features = ["apple-native", "windows-native"]`)
+      in `src-tauri/Cargo.toml`, rewriting `set/get/delete_api_key_secret` in both
+      `src-tauri/src/main.rs` and `src-tauri/src/llm.rs`. Without this, Windows does not compile at all.
+- [x] Add Windows build target to `tauri.conf.json` (NSIS chosen over MSI — no WiX dependency):
   ```json
   "bundle": {
     "active": true,
-    "targets": ["dmg", "msi"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    "targets": ["app", "dmg", "nsis"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png", "icons/icon.icns", "icons/icon.ico"]
   }
   ```
-- [ ] Generate `icons/icon.ico` — use existing SVG source via `svgexport` (or a PNG-to-ICO converter on Windows)
-- [ ] Generate Windows Store logo sizes (optional but good for MSI)
-- [ ] Verify `npm run tauri build` on Windows → produces `.msi` or `.exe` installer
+- [x] Generate `icons/icon.ico` — multi-size (16–256) ICO generated from `icons/icon.png`
+- [x] Verify `cargo check` + `cargo test` pass on Windows
+- [ ] Verify `npm run tauri build` on Windows → produces the NSIS `*-setup.exe` installer
 - [ ] Test on clean Windows machine — install and launch
-- [ ] Update GitHub Actions CI to build on `windows-latest` as well as `macos-latest`
+- [x] Update GitHub Actions CI to build on `windows-latest` as well as `macos-latest`
 - [ ] Publish Windows release alongside macOS DMG
 
 ### Alchemist-verified pattern
@@ -64,11 +68,11 @@ jobs:
           cache: "npm"
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
-      - run: npm run tauri build
+      - run: npm run tauri -- build --bundles nsis
       - uses: actions/upload-artifact@v4
         with:
-          name: Grimoire-windows-msi
-          path: src-tauri/target/release/bundle/msi/*.msi
+          name: Grimoire-windows-nsis
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
 ```
 
 ---
@@ -145,7 +149,8 @@ jobs:
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
-| Windows Rust build fails (cold compile) | MEDIUM | First build takes 2-5 mins. Run `cargo check` first to confirm code compiles before full Tauri build. |
+| ~~macOS-only `security-framework` (Keychain) used unconditionally → Windows would not compile~~ | ~~HIGH~~ RESOLVED | Swapped the secret layer to the cross-platform `keyring` crate (Windows Credential Manager / macOS Keychain) in Sprint 6. `cargo check` + `cargo test` now pass on Windows. |
+| Windows Rust build slow (cold compile) | LOW | First build takes a few minutes. Run `cargo check` before a full Tauri build. |
 | `npm install` fails on Windows (node-gyp, native deps) | LOW | Alchemist built clean on Windows. Same deps. |
 | Co-Writer backend doesn't work after months of inactivity | MEDIUM | Test with Ollama first (no API key needed). If the Rust module needs fixes, they're surgical — the pattern is proven in Alchemist. |
 | Unsigned Windows installer triggers SmartScreen | LOW | Same as macOS Gatekeeper. Users click "Run anyway". Document in README. |
@@ -153,6 +158,11 @@ jobs:
 ---
 
 ## Quick Start for Windows Machine
+
+Prerequisites: Rust (MSVC toolchain), **Visual Studio Build Tools with the Desktop C++ workload**
+(required because `rusqlite` compiles bundled SQLite from C source), Node 18+, and WebView2
+(preinstalled on Windows 11). `icons/icon.ico` is now committed, so no icon generation is needed; to
+regenerate it run `npm run tauri icon src-tauri/icons/icon.png` (ideally from a 1024×1024 source).
 
 ```bash
 # 1. Clone the repo
@@ -162,14 +172,11 @@ cd Grimoire
 # 2. Install deps
 npm install
 
-# 3. Generate Windows icons (from existing SVG)
-# npx svgexport <app-icon-svg> src-tauri/icons/icon.ico 256:256
-
-# 4. Check Rust compiles
+# 3. Check Rust compiles
 cd src-tauri && cargo check && cd ..
 
-# 5. Build
-npm run tauri build
+# 4. Build (NSIS .exe installer)
+npm run tauri -- build --bundles nsis
 ```
 
 ---

@@ -1,5 +1,7 @@
 # Signing And Notarization
 
+> _Scoped to the macOS unsigned-DMG release path. The Windows release path (NSIS `.exe`) is tracked in [get-it-working-plan](../get-it-working-plan.md)._
+
 Grimoire can be released in two macOS distribution modes.
 
 ## Unsigned Community DMG

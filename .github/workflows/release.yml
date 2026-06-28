@@ -95,6 +95,8 @@ jobs:
           body: |
             ## Installation
 
+            ### macOS
+
             1. Open the DMG
             2. Drag the app to **Applications**
             3. In the DMG, double-click **Unlock-Grimoire.command** — removes the Gatekeeper flag
@@ -102,7 +104,61 @@ jobs:
 
             **Why the unlock step?** This build uses ad-hoc signing (no Apple Developer account). macOS flags downloaded apps from the internet. The unlock script removes this.
 
+            ### Windows
+
+            1. Download and run the `*-setup.exe` installer.
+            2. Windows SmartScreen may warn because the installer is unsigned. Click **More info → Run anyway**.
+            3. Follow the installer, then launch Grimoire from the Start menu.
+
             Only install from the official [Witch Daddy Labs](https://github.com/witchdaddylabs/Grimoire) release.
           files: |
             src-tauri/target/release/bundle/dmg/*.dmg
             grimoire-dmg-sha256.txt
+
+  build-windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Tauri app (NSIS installer)
+        run: npm run tauri -- build --bundles nsis
+
+      - name: Generate checksum
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          (Get-FileHash $exe.FullName -Algorithm SHA256).Hash | Out-File -Encoding ascii grimoire-exe-sha256.txt
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Grimoire-windows-nsis
+          path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            grimoire-exe-sha256.txt
+
+      - name: Add installer to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: true
+          files: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            grimoire-exe-sha256.txt
