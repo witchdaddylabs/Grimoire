@@ -1,5 +1,7 @@
 # M14 Cloud BYOK Providers Implementation Plan
 
+> _Historical milestone plan (completed). In this plan "Palace" is today's "Vault". The current roadmap is [get-it-working-plan](../../get-it-working-plan.md)._
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add cloud model support through user-owned API keys while preserving Grimoire's local-first default, explicit user consent, local retrieval pipeline, and no-secrets-export promise.

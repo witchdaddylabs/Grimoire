@@ -1,5 +1,7 @@
 # M3 Palace Tree Plan
 
+> _Historical milestone plan (completed). In this plan "Palace" is today's "Vault". The current roadmap is [get-it-working-plan](../../get-it-working-plan.md)._
+
 Goal: render The Palace hierarchy from SQLite instead of a flat static list.
 
 ## Scope

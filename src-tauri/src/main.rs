@@ -14,7 +14,7 @@ use ai::{
 };
 use external_vault::parse_external_vault;
 use rusqlite::{params, Connection};
-use security_framework::passwords;
+use keyring::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -43,7 +43,7 @@ use wards::*;
 
 #[tauri::command]
 fn app_ping() -> &'static str {
-    "Grimoire macOS scaffold awake"
+    "Grimoire desktop scaffold awake"
 }
 
 #[tauri::command]
@@ -1962,49 +1962,47 @@ fn secret_service(provider: AiProviderKind) -> String {
     format!("com.witchdaddylabs.grimoire.{}", provider.as_key())
 }
 
+fn secret_entry(project_path: &str, provider: AiProviderKind) -> CommandResult<Entry> {
+    Entry::new(
+        &secret_service(provider),
+        &secret_account(project_path, provider),
+    )
+    .map_err(|error| format!("Could not open the secure credential store: {error}"))
+}
+
 fn set_api_key_secret(
     project_path: &str,
     provider: AiProviderKind,
     api_key: &str,
 ) -> CommandResult<()> {
-    passwords::set_generic_password(
-        &secret_service(provider),
-        &secret_account(project_path, provider),
-        api_key.as_bytes(),
-    )
-    .map_err(|error| format!("Could not save provider API key in macOS Keychain: {error}"))?;
-    Ok(())
+    secret_entry(project_path, provider)?
+        .set_password(api_key)
+        .map_err(|error| format!("Could not save provider API key in the credential store: {error}"))
 }
 
 fn get_api_key_secret(
     project_path: &str,
     provider: AiProviderKind,
 ) -> CommandResult<Option<String>> {
-    match passwords::get_generic_password(
-        &secret_service(provider),
-        &secret_account(project_path, provider),
-    ) {
-        Ok(bytes) => {
-            let key = String::from_utf8(bytes)
-                .map_err(|_| "Provider API key in Keychain is not valid UTF-8".to_string())?
-                .trim()
-                .to_string();
+    match secret_entry(project_path, provider)?.get_password() {
+        Ok(key) => {
+            let key = key.trim().to_string();
             if key.is_empty() {
                 Ok(None)
             } else {
                 Ok(Some(key))
             }
         }
-        Err(_) => Ok(None),
+        Err(KeyringError::NoEntry) => Ok(None),
+        Err(error) => Err(format!("Could not read provider API key: {error}")),
     }
 }
 
 fn delete_api_key_secret(project_path: &str, provider: AiProviderKind) -> CommandResult<()> {
-    let _ = passwords::delete_generic_password(
-        &secret_service(provider),
-        &secret_account(project_path, provider),
-    );
-    Ok(())
+    match secret_entry(project_path, provider)?.delete_credential() {
+        Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
+        Err(error) => Err(format!("Could not delete provider API key: {error}")),
+    }
 }
 
 fn fetch_ollama_models(base_url: &str) -> Result<Vec<AiModelInfo>, String> {

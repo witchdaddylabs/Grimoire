@@ -1,8 +1,8 @@
 {
   "name": "grimoire",
   "private": true,
-  "version": "0.2.0",
-  "description": "A local-first macOS writing studio with Grimoire Vault memory and optional AI assistance.",
+  "version": "0.3.0",
+  "description": "A local-first writing studio for macOS and Windows, with Grimoire Vault memory and optional AI assistance.",
   "author": "Witch Daddy Labs",
   "license": "MIT",
   "homepage": "https://github.com/witchdaddylabs/grimoire",
@@ -23,6 +23,7 @@
     "test:rust": "cd src-tauri && cargo test",
     "verify": "npm run build && npm run test:rust && npm run check:rust",
     "package:mac": "tauri build --bundles dmg",
+    "package:win": "tauri build --bundles nsis",
     "preview": "vite preview --host 127.0.0.1 --port 1420",
     "tauri": "tauri"
   },
