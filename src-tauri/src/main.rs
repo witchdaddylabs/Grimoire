@@ -15,7 +15,6 @@ use ai::{
 use external_vault::parse_external_vault;
 use rusqlite::{params, Connection};
 use keyring::{Entry, Error as KeyringError};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     env, fs,

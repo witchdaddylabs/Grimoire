@@ -1,15 +1,12 @@
 use crate::errors::CommandResult;
 use crate::models::{
-    BannedWord, SearchChunkResult, VaultDrawerNode, VaultHallNode, VaultItemDetail, VaultItemNode,
+    BannedWord, VaultDrawerNode, VaultHallNode, VaultItemDetail, VaultItemNode,
     VaultRoomNode, VaultTreeResponse, VaultWingNode,
 };
 use rusqlite::{params, Connection, Params};
-use std::path::Path;
 
-use crate::models::ProjectMetadata;
 
 // -- Re-exports used by vault.rs / wards.rs --
-pub use super::llm::{seed_default_banned_words, scan_wards};
 
 pub fn collect_named_rows<P>(
     connection: &Connection,

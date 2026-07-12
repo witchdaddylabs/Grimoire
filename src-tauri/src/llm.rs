@@ -1,14 +1,13 @@
 use crate::errors::CommandResult;
 use crate::ai::{
     AiChatRequest, AiChatResponse, AiModelInfo, AiProviderKind, AiProviderModelsResponse,
-    AiProviderSettings, AiProviderSettingsResponse,
+    AiProviderSettings,
 };
 use crate::models::{
     BannedWord, WardScanHit, WardScanResponse,
 };
 use keyring::{Entry, Error as KeyringError};
 use rusqlite::{params, Connection};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::time::Duration;
 
