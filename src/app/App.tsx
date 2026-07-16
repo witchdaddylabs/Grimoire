@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   BookOpenText, ChevronLeft, ChevronRight, Feather,
   Loader2, Moon, SunMedium, Plus, Archive, FileText,
-  AlertTriangle, X, Info, Search,
+  AlertTriangle, X, Search,
 } from "lucide-react";
 import {
   createProject, createDemoProject, openProject,
@@ -96,6 +96,9 @@ export function App() {
   // Search
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<{ id: string; title: string; snippet: string }[]>([]);
+
+  // Project picker state
+  const [pickerName, setPickerName] = useState("");
 
   // UI prefs
   const [leftOpen, setLeftOpen] = useState(true);
@@ -406,19 +409,16 @@ export function App() {
             <h2>Welcome to Grimoire</h2>
             <p>Local-first writing studio with Vault memory.</p>
 
-            {(() => {
-              const [name, setName] = useState("");
-              return (
-                <div className="project-picker-actions">
-                  <form onSubmit={async (e) => { e.preventDefault(); if (name.trim()) { await handleCreateProject(name.trim()); setName(""); } }}>
-                    <input
-                      className="input" type="text" placeholder="Project name"
-                      value={name} onChange={e => setName(e.target.value)}
-                    />
-                    <button className="button button-primary" type="submit">
-                      <Plus size={16} /> Create New Project
-                    </button>
-                  </form>
+            <div className="project-picker-actions">
+              <form onSubmit={async (e) => { e.preventDefault(); if (pickerName.trim()) { await handleCreateProject(pickerName.trim()); setPickerName(""); } }}>
+                <input
+                  className="input" type="text" placeholder="Project name"
+                  value={pickerName} onChange={e => setPickerName(e.target.value)}
+                />
+                <button className="button button-primary" type="submit">
+                  <Plus size={16} /> Create New Project
+                </button>
+              </form>
                   <button className="button button-secondary" type="button" onClick={handleOpenProject}>
                     <Archive size={16} /> Open Existing Project
                   </button>
@@ -426,8 +426,6 @@ export function App() {
                     <FileText size={16} /> Load Demo
                   </button>
                 </div>
-              );
-            })()}
 
             {recentProjects.length > 0 && (
               <div className="project-picker-recent">
