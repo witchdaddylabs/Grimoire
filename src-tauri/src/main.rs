@@ -710,6 +710,12 @@ fn ai_chat(request: AiChatRequest) -> CommandResult<AiChatResponse> {
 }
 
 #[tauri::command]
+fn chat_with_vault(request: ChatWithVaultRequest) -> CommandResult<ChatWithVaultResponse> {
+    let connection = open_project_database(&request.project_path)?;
+    crate::llm::chat_with_vault(&connection, &request)
+}
+
+#[tauri::command]
 fn export_item_markdown(request: ExportItemRequest) -> CommandResult<ExportResponse> {
     let project_dir = validate_project_dir(PathBuf::from(&request.project_path))?;
     let connection = open_project_database(&request.project_path)?;
@@ -872,6 +878,7 @@ fn main() {
             ai_select_provider,
             ai_list_models,
             ai_chat,
+            chat_with_vault,
             ollama_get_status,
             ollama_select_model,
             ollama_chat,
