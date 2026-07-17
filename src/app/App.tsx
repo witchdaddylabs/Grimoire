@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   BookOpenText, ChevronLeft, ChevronRight, Feather,
   Loader2, Moon, SunMedium, Plus, Archive, FileText,
-  AlertTriangle, X, Search,
+  AlertTriangle, X, Search, Settings, Download,
 } from "lucide-react";
 import {
   createProject, createDemoProject, openProject,
@@ -14,12 +14,13 @@ import {
   loadVaultTree, getVaultItem, updateVaultItem, importText,
   createVaultNode, archiveVaultItem, deleteVaultItem,
   searchChunks, exportItemMarkdown, exportProjectJson,
-  exportVaultItemsJson, fallbackVaultTree, flattenVaultItems,
+  exportVaultItemsJson, fallbackVaultTree, flattenVaultItems, manuscriptExport,
   type VaultItemNode, type VaultTreeResponse, type VaultItemDetail,
 } from "./vault";
 import { useCoWriter } from "../features/cowriter/useCoWriter";
 import { CoWriterPanel } from "../features/cowriter/CoWriterPanel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SettingsPanel } from "../features/settings/SettingsPanel";
 
 // ── Types ──
 type TauriState = "checking" | "awake" | "browser";
@@ -101,6 +102,8 @@ export function App() {
   const [focusMode, setFocusMode] = useState(false);
   const [theme, setTheme] = useState<"dark" | "ivory">("dark");
   const [toast, setToast] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [ollamaUrl, setOllamaUrl] = useState("http://127.0.0.1:11434");
 
   const vaultFlatItems = useMemo(() => flattenVaultItems(vaultTree), [vaultTree]);
   const activeItem = useMemo(
@@ -355,6 +358,9 @@ export function App() {
         </div>
 
         <div className="top-actions">
+          <button className="icon-button" type="button" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+            <Settings size={17} />
+          </button>
           <button className="icon-button" type="button" aria-label="Toggle theme" onClick={() => setTheme(t => t === "ivory" ? "dark" : "ivory")}>
             {theme === "ivory" ? <Moon size={17} /> : <SunMedium size={17} />}
           </button>
@@ -523,6 +529,13 @@ export function App() {
               }}>
                 <Archive size={14} /> Export Project
               </button>
+              <button className="button button-secondary" type="button" onClick={async () => {
+                if (!project || tauriState !== "awake") return;
+                try { await manuscriptExport(project.projectPath, project.name, "markdown"); showToast("Manuscript exported."); }
+                catch (err) { showToast(describeError(err)); }
+              }}>
+                <Download size={14} /> Export Manuscript
+              </button>
             </div>
           </div>
 
@@ -603,6 +616,26 @@ export function App() {
           </button>
         </div>
       )}
+
+      {/* Settings */}
+      <SettingsPanel
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        theme={theme}
+        onThemeChange={setTheme}
+        projectName={project?.name ?? ""}
+        projectPath={project?.projectPath ?? ""}
+        onProjectNameChange={() => {}}
+        ollamaUrl={ollamaUrl}
+        onOllamaUrlChange={setOllamaUrl}
+        activeProvider="ollama"
+        onProviderChange={() => {}}
+        apiKey=""
+        onApiKeyChange={() => {}}
+        onApiKeySave={() => {}}
+        onApiKeyDelete={() => {}}
+        hasApiKey={false}
+      />
     </main>
   );
 }
