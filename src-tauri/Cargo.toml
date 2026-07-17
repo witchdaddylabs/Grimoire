@@ -1,6 +1,6 @@
 [package]
 name = "grimoire"
-version = "0.3.0"
+version = "1.0.0"
 description = "A local-first writing studio for macOS and Windows, with Grimoire Vault memory."
 authors = ["Witch Daddy Labs"]
 license = "MIT"
