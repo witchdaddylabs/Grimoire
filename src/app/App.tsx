@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   BookOpenText, ChevronLeft, ChevronRight, Feather,
@@ -18,6 +17,9 @@ import {
   exportVaultItemsJson, fallbackVaultTree, flattenVaultItems,
   type VaultItemNode, type VaultTreeResponse, type VaultItemDetail,
 } from "./vault";
+import { useCoWriter } from "../features/cowriter/useCoWriter";
+import { CoWriterPanel } from "../features/cowriter/CoWriterPanel";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // ── Types ──
 type TauriState = "checking" | "awake" | "browser";
@@ -86,12 +88,6 @@ export function App() {
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const lastSavedRef = useRef({ itemId: "", title: "", content: "" });
-
-  // Import
-  const [importTitle, setImportTitle] = useState("");
-  const [importBody, setImportBody] = useState("");
-  const [importStatus, setImportStatus] = useState("Paste text or choose .txt / .md files.");
-  const [importRunning, setImportRunning] = useState(false);
 
   // Search
   const [searchQuery, setSearchQuery] = useState("");
@@ -242,49 +238,6 @@ export function App() {
     await loadProjectIntoWorkspace(metadata);
   }, [loadProjectIntoWorkspace]);
 
-  // Import
-  const handleImport = useCallback(async () => {
-    if (!project || tauriState !== "awake") { showToast("Import needs a local project."); return; }
-    if (!importBody.trim()) return;
-    setImportRunning(true);
-    try {
-      const prepared = prepareImportContent(importBody);
-      const response = await importText(project.projectPath, importTitle || "Imported writing", prepared.content, "Pasted text");
-      setImportBody("");
-      setImportTitle("");
-      setImportStatus(prepared.truncated
-        ? `Imported first ${IMPORT_WORD_LIMIT.toLocaleString()} words.`
-        : `Imported ${response.item.title}.`);
-      await refreshTree(response.item.id);
-      showToast("Import complete.");
-    } catch (err) {
-      setImportStatus(describeError(err));
-    } finally {
-      setImportRunning(false);
-    }
-  }, [project, tauriState, importBody, importTitle, refreshTree, showToast]);
-
-  const handleFileImport = useCallback(async (files: FileList | null) => {
-    if (!files || !project || tauriState !== "awake") return;
-    setImportRunning(true);
-    let lastItemId = "";
-    let importedCount = 0;
-    for (const file of Array.from(files)) {
-      if (!/\.(md|txt|markdown)$/i.test(file.name)) continue;
-      const content = prepareImportContent(await file.text());
-      const title = file.name.replace(/\.(md|txt|markdown)$/i, "");
-      const response = await importText(project.projectPath, title, content.content, file.name);
-      lastItemId = response.item.id;
-      importedCount++;
-    }
-    if (importedCount > 0) {
-      setImportStatus(`Imported ${importedCount} file${importedCount > 1 ? "s" : ""}.`);
-      await refreshTree(lastItemId);
-      showToast(`${importedCount} file${importedCount > 1 ? "s" : ""} imported.`);
-    }
-    setImportRunning(false);
-  }, [project, tauriState, refreshTree, showToast]);
-
   // Search
   const handleSearch = useCallback(async () => {
     const query = searchQuery.trim();
@@ -349,6 +302,26 @@ export function App() {
       return next;
     });
   }, []);
+
+  // Co-Writer hook
+  const coWriter = useCoWriter(
+    project?.projectPath ?? null,
+    tauriState,
+    editorContent,
+    searchResults.map(r => ({
+      chunkId: r.id,
+      itemId: r.id,
+      title: r.title,
+      itemType: "note" as const,
+      vaultPath: r.title,
+      snippet: r.snippet,
+      score: 0,
+      confidence: "high" as const,
+    })),
+    setActiveItemId,
+    (text) => setEditorContent(prev => prev + "\n\n" + text),
+    showToast,
+  );
 
   // ── Shell class ──
   const shellClassName = [
@@ -553,62 +526,70 @@ export function App() {
             </div>
           </div>
 
-          {/* Right: Tools panel (inside workspace grid, below top bar) — hidden in focus mode */}
+          {/* Right: Co-Writer panel — hidden in focus mode */}
           {!focusMode && (
-            <div className="cowriter-panel panel">
-              <div className="panel-header">
-                <div className="panel-heading">
-                  <div className="panel-icon"><Search size={17} /></div>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: 14 }}>Tools</h3>
-                    <p style={{ margin: 0, fontSize: 11, color: "var(--parchment-muted)" }}>Import & search</p>
-                  </div>
-                </div>
-              </div>
-              <div className="panel-scroll" style={{ padding: 14 }}>
-                {/* Search */}
-                <form onSubmit={e => { e.preventDefault(); handleSearch(); }} style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-                  <input
-                    className="compact-input" type="search" placeholder="Search Vault"
-                    value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                    style={{ flex: 1 }}
-                  />
-                  <button className="button button-secondary" type="submit" style={{ padding: "6px 10px" }}>
-                    <Search size={14} />
-                  </button>
-                </form>
-                {searchResults.length > 0 && (
-                  <div style={{ marginBottom: 12 }}>
-                    {searchResults.map(r => (
-                      <button key={r.id} className="result-item" type="button" onClick={() => setActiveItemId(r.id)} style={{ display: "block", width: "100%", textAlign: "left", marginBottom: 4 }}>
-                        <strong style={{ fontSize: 12 }}>{r.title}</strong>
-                        {r.snippet && <span style={{ fontSize: 11, color: "var(--parchment-muted)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.snippet}</span>}
-                      </button>
-                    ))}
-                    <button className="text-button" type="button" onClick={() => { setSearchResults([]); setSearchQuery(""); }} style={{ marginTop: 4 }}>Clear</button>
-                  </div>
-                )}
-
-                {/* Import */}
-                <div style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 12 }}>
-                  <p style={{ fontSize: 12, color: "var(--parchment-secondary)", fontWeight: 600, margin: "0 0 8px" }}>Feed the Vault</p>
-                  <form onSubmit={e => { e.preventDefault(); handleImport(); }}>
-                    <input className="compact-input" value={importTitle} onChange={e => setImportTitle(e.target.value)} placeholder="Title (optional)" style={{ marginBottom: 6 }} />
-                    <textarea className="compact-textarea" value={importBody} onChange={e => setImportBody(e.target.value)} placeholder="Paste text or Markdown (max 10,000 words)" style={{ minHeight: 80 }} />
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                      <button className="button button-primary" type="submit" disabled={importRunning}>
-                        {importRunning ? <Loader2 size={14} /> : <FileText size={14} />} Import
-                      </button>
-                      <label className="file-button" style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12, padding: "5px 10px", border: "1px solid var(--border-subtle)", borderRadius: 6, background: "var(--obsidian-panel)", color: "var(--parchment-secondary)" }}>
-                        <FileText size={14} /> Files
-                        <input type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" multiple onChange={e => handleFileImport(e.currentTarget.files)} style={{ display: "none" }} />
-                      </label>
-                    </div>
-                  </form>
-                  {importStatus && <p style={{ fontSize: 11, color: "var(--parchment-muted)", marginTop: 6 }}>{importStatus}</p>}
-                </div>
-              </div>
-            </div>
+            <CoWriterPanel
+              rightCollapsed={coWriter.rightCollapsed}
+              activeProvider={coWriter.activeProvider}
+              selectedModel={coWriter.selectedModel}
+              providerLabels={providerLabels}
+              providerModels={coWriter.providerModels}
+              activeProviderSettings={coWriter.activeProviderSettings}
+              activeProviderIsCloud={coWriter.activeProviderIsCloud}
+              openToolSectionSet={coWriter.openToolSectionSet}
+              importTitle={coWriter.importTitle}
+              importBody={coWriter.importBody}
+              importState={coWriter.importState}
+              importStatus={coWriter.importStatus}
+              importProgress={coWriter.importProgress}
+              engineState={coWriter.engineState}
+              engineStatus={coWriter.engineStatus}
+              engineError={coWriter.engineError}
+              modelDraft={coWriter.modelDraft}
+              modelOptions={coWriter.modelOptions}
+              apiKeyDraft={coWriter.apiKeyDraft}
+              baseUrlDraft={coWriter.baseUrlDraft}
+              cowriterPrompt={coWriter.cowriterPrompt}
+              cowriterState={coWriter.cowriterState}
+              cowriterStatus={coWriter.cowriterStatus}
+              cowriterAnswer={coWriter.cowriterAnswer}
+              cowriterError={coWriter.cowriterError}
+              retrievalResults={coWriter.retrievalResults}
+              answerWardHits={coWriter.answerWardHits}
+              wards={coWriter.wards}
+              wardInput={coWriter.wardInput}
+              wardSeverity={coWriter.wardSeverity}
+              wardState={coWriter.wardState}
+              wardStatus={coWriter.wardStatus}
+              searchResults={coWriter.searchResults}
+              onToggleToolSection={coWriter.onToggleToolSection}
+              onImportTitleChange={(v) => coWriter.setImportTitle(v)}
+              onImportBodyChange={(v) => coWriter.setImportBody(v)}
+              onPasteImport={(e) => { e.preventDefault(); showToast("Use the Co-Writer Vault chat instead of paste import."); }}
+              onFileImport={() => { showToast("Use the Co-Writer Vault chat to import files."); }}
+              onRefreshEngine={coWriter.onRefreshEngine}
+              onProviderTest={coWriter.onProviderTest}
+              onProviderSelection={coWriter.onProviderSelection}
+              onModelDraftChange={(v) => coWriter.setModelDraft(v)}
+              onApiKeyDraftChange={(v) => coWriter.setApiKeyDraft(v)}
+              onBaseUrlDraftChange={(v) => coWriter.setBaseUrlDraft(v)}
+              onApiKeySave={coWriter.onApiKeySave}
+              onApiKeyDelete={coWriter.onApiKeyDelete}
+              onEngineSettingsSave={coWriter.onEngineSettingsSave}
+              onCowriterPromptChange={(v) => coWriter.setCowriterPrompt(v)}
+              onRunCowriter={coWriter.onRunCowriter}
+              onInsertAnswer={coWriter.onInsertAnswer}
+              onCopyAnswer={coWriter.onCopyAnswer}
+              onDiscardAnswer={coWriter.onDiscardAnswer}
+              onRewriteClean={coWriter.onRewriteClean}
+              onWardInputChange={(v) => coWriter.setWardInput(v)}
+              onWardSeverityChange={(v) => coWriter.setWardSeverity(v)}
+              onWardAdd={coWriter.onWardAdd}
+              onWardRemove={coWriter.onWardRemove}
+              onSelectItem={coWriter.onSelectItem}
+              onExpandRight={coWriter.onExpandRight}
+              onCollapseRight={coWriter.onCollapseRight}
+            />
           )}
         </section>
       )}
@@ -696,3 +677,6 @@ function VaultTreeRead({ tree, activeItemId, expandedNodeIds, onToggle, onSelect
     </div>
   );
 }
+
+// Re-export for use in CoWriterPanel
+import { providerLabels } from "./ai";

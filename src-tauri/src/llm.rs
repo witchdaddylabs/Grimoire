@@ -4,7 +4,7 @@ use crate::ai::{
     AiProviderSettings,
 };
 use crate::models::{
-    BannedWord, WardScanHit, WardScanResponse,
+    BannedWord, SearchChunkResult, WardScanHit, WardScanResponse,
 };
 use keyring::{Entry, Error as KeyringError};
 use rusqlite::{params, Connection};
@@ -634,4 +634,97 @@ pub fn aggregate_confidence(results: &[crate::models::SearchChunkResult]) -> Str
         .first()
         .map(|result| result.confidence.clone())
         .unwrap_or_else(|| "none".to_string())
+}
+
+// -- Grounded Co-Writer chat orchestration --
+
+pub fn build_grounded_context(
+    retrieval_items: &[crate::models::SearchChunkResult],
+    canvas_context: Option<&str>,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if !retrieval_items.is_empty() {
+        let snippets: Vec<String> = retrieval_items
+            .iter()
+            .take(5)
+            .map(|r| {
+                format!(
+                    "Source: {} ({})\n{}",
+                    r.title,
+                    r.vault_path,
+                    r.snippet.trim()
+                )
+            })
+            .collect();
+        parts.push(format!(
+            "Relevant Vault excerpts:\n{}",
+            snippets.join("\n\n")
+        ));
+    }
+    if let Some(canvas) = canvas_context.filter(|c| !c.trim().is_empty()) {
+        parts.push(format!("Active Canvas context:\n{}", canvas.trim()));
+    }
+    if parts.is_empty() {
+        "No additional Vault or Canvas context available for this request.".to_string()
+    } else {
+        parts.join("\n\n")
+    }
+}
+
+pub fn chat_with_vault(
+    connection: &Connection,
+    request: &crate::models::ChatWithVaultRequest,
+) -> CommandResult<crate::models::ChatWithVaultResponse> {
+    let retrieval_query = request
+        .vault_query
+        .as_deref()
+        .filter(|q| !q.trim().is_empty())
+        .unwrap_or(&request.prompt);
+    let max_items = request.max_retrieval_items.unwrap_or(5).clamp(1, 12);
+    let retrieval_items =
+        crate::db::search_chunks_internal(connection, retrieval_query, max_items)?;
+
+    let grounded_context = build_grounded_context(
+        &retrieval_items,
+        request.canvas_context.as_deref(),
+    );
+
+    let chat_request = AiChatRequest {
+        project_path: request.project_path.clone(),
+        provider: request.provider,
+        model: request.model.clone(),
+        prompt: request.prompt.clone(),
+        grounded_context,
+    };
+
+    let chat_response = match request.provider {
+        AiProviderKind::Ollama => chat_ollama(&chat_request),
+        AiProviderKind::OpenAi | AiProviderKind::OpenAiCompatible => {
+            chat_openai_compatible(connection, &chat_request)
+        }
+        AiProviderKind::Anthropic => chat_anthropic(connection, &chat_request),
+        AiProviderKind::GoogleAiStudio => chat_google(connection, &chat_request),
+    }?;
+
+    let ward_hits = crate::db::scan_wards_internal(connection, &chat_response.text)?.hits;
+
+    let citations: Vec<crate::models::ChatWithVaultCitation> = retrieval_items
+        .into_iter()
+        .take(5)
+        .map(|r| crate::models::ChatWithVaultCitation {
+            item_id: r.item_id,
+            title: r.title,
+            vault_path: r.vault_path,
+            snippet: r.snippet,
+        })
+        .collect();
+
+    Ok(crate::models::ChatWithVaultResponse {
+        provider: request.provider,
+        model: chat_response.model,
+        text: chat_response.text,
+        citations,
+        ward_hits,
+        request_id: chat_response.request_id,
+    })
 }

@@ -3,6 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 
+// Re-exported from ai/mod.rs for use in model definitions
+pub use crate::ai::AiProviderKind;
+
 // ── Project ──
 
 #[derive(Debug, Deserialize)]
@@ -233,6 +236,40 @@ pub struct WardScanHit {
 pub struct WardScanResponse {
     pub hits: Vec<WardScanHit>,
     pub has_blocking_hits: bool,
+}
+
+// ── Co-Writer grounded chat ──
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatWithVaultRequest {
+    pub project_path: String,
+    pub provider: AiProviderKind,
+    pub model: String,
+    pub prompt: String,
+    pub vault_query: Option<String>,
+    pub canvas_context: Option<String>,
+    pub max_retrieval_items: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatWithVaultCitation {
+    pub item_id: String,
+    pub title: String,
+    pub vault_path: String,
+    pub snippet: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatWithVaultResponse {
+    pub provider: AiProviderKind,
+    pub model: String,
+    pub text: String,
+    pub citations: Vec<ChatWithVaultCitation>,
+    pub ward_hits: Vec<WardScanHit>,
+    pub request_id: Option<String>,
 }
 
 // ── Ollama / LLM ──

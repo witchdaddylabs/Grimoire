@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { WardScanHit } from "./vault";
 
 export type AiProviderKind =
   | "ollama"
@@ -108,5 +109,43 @@ export function aiChat(
 ) {
   return invoke<AiChatResponse>("ai_chat", {
     request: { projectPath, provider, model, prompt, groundedContext },
+  });
+}
+
+export type ChatWithVaultCitation = {
+  itemId: string;
+  title: string;
+  vaultPath: string;
+  snippet: string;
+};
+
+export type ChatWithVaultResponse = {
+  provider: AiProviderKind;
+  model: string;
+  text: string;
+  citations: ChatWithVaultCitation[];
+  wardHits: WardScanHit[];
+  requestId: string | null;
+};
+
+export function chatWithVault(
+  projectPath: string,
+  provider: AiProviderKind,
+  model: string,
+  prompt: string,
+  vaultQuery?: string,
+  canvasContext?: string,
+  maxRetrievalItems?: number,
+) {
+  return invoke<ChatWithVaultResponse>("chat_with_vault", {
+    request: {
+      projectPath,
+      provider,
+      model,
+      prompt,
+      vaultQuery: vaultQuery ?? null,
+      canvasContext: canvasContext ?? null,
+      maxRetrievalItems: maxRetrievalItems ?? null,
+    },
   });
 }

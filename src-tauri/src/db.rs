@@ -1,7 +1,7 @@
 use crate::errors::CommandResult;
 use crate::models::{
-    BannedWord, VaultDrawerNode, VaultHallNode, VaultItemDetail, VaultItemNode,
-    VaultRoomNode, VaultTreeResponse, VaultWingNode,
+    BannedWord, SearchChunkResult, VaultDrawerNode, VaultHallNode, VaultItemDetail, VaultItemNode,
+    VaultRoomNode, VaultTreeResponse, VaultWingNode, WardScanResponse,
 };
 use rusqlite::{params, Connection, Params};
 
@@ -469,4 +469,89 @@ pub fn remove_banned_word(connection: &Connection, id: &str) -> CommandResult<Ve
 // -- Re-export of llms helpers used by tests / wards --
 pub fn scan_banned_words(words: &[BannedWord], text: &str) -> crate::models::WardScanResponse {
     super::llm::scan_wards(words, text)
+}
+
+// -- Internal helpers for chat_with_vault orchestration --
+
+pub fn fts_query_terms(query: &str) -> CommandResult<String> {
+    let mut terms: Vec<String> = Vec::new();
+    for raw in query.split_whitespace() {
+        let trimmed = raw.trim_matches(|c: char| !c.is_alphanumeric());
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut escaped = String::new();
+        for ch in trimmed.chars() {
+            if ch == '"' || ch == '*' || ch == '(' || ch == ')' {
+                escaped.push('"');
+                escaped.push(ch);
+                escaped.push('"');
+            } else {
+                escaped.push(ch);
+            }
+        }
+        terms.push(format!("{}*", escaped));
+    }
+    if terms.is_empty() {
+        return Err("Query is empty.".to_string());
+    }
+    Ok(terms.join(" "))
+}
+
+pub fn search_chunks_internal(
+    connection: &Connection,
+    query: &str,
+    limit: i64,
+) -> CommandResult<Vec<SearchChunkResult>> {
+    let fts_query = fts_query_terms(query)?;
+    let limit = limit.clamp(1, 24);
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT
+              chunk_id,
+              item_id,
+              title,
+              item_type,
+              vault_path,
+              text,
+              bm25(item_chunks_fts) AS rank
+            FROM item_chunks_fts
+            WHERE item_chunks_fts MATCH ?1
+            ORDER BY rank
+            LIMIT ?2
+            "#,
+        )
+        .map_err(|error| format!("Could not prepare Vault search: {error}"))?;
+
+    let mapped = statement
+        .query_map(params![fts_query, limit], |row| {
+            let raw_score: f64 = row.get(6)?;
+            let score = 0.0 - raw_score;
+            Ok(SearchChunkResult {
+                chunk_id: row.get(0)?,
+                item_id: row.get(1)?,
+                title: row.get(2)?,
+                item_type: row.get(3)?,
+                vault_path: row.get(4)?,
+                snippet: row.get(5)?,
+                score,
+                confidence: crate::llm::confidence_for_score(score),
+            })
+        })
+        .map_err(|error| format!("Could not search Vault chunks: {error}"))?;
+
+    let mut results = Vec::new();
+    for result in mapped {
+        results.push(result.map_err(|error| format!("Could not read search result: {error}"))?);
+    }
+    Ok(results)
+}
+
+pub fn scan_wards_internal(
+    connection: &Connection,
+    text: &str,
+) -> CommandResult<WardScanResponse> {
+    let words = read_banned_words(connection)?;
+    Ok(crate::llm::scan_wards(&words, text))
 }
