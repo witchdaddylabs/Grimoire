@@ -4,7 +4,7 @@ use crate::ai::{
     AiProviderSettings,
 };
 use crate::models::{
-    BannedWord, SearchChunkResult, WardScanHit, WardScanResponse,
+    BannedWord, WardScanHit, WardScanResponse,
 };
 use keyring::{Entry, Error as KeyringError};
 use rusqlite::{params, Connection};
@@ -497,7 +497,7 @@ fn cloud_http_error(provider: &str, status: u16) -> String {
     }
 }
 
-fn openai_compatible_url(base_url: &str) -> String {
+pub fn openai_compatible_url(base_url: &str) -> String {
     format!("{}/v1/chat/completions", base_url.trim_end_matches('/'))
 }
 

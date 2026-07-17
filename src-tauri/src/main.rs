@@ -14,12 +14,11 @@ use ai::{
 };
 use external_vault::parse_external_vault;
 use rusqlite::{params, Connection};
-use keyring::{Entry, Error as KeyringError};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::{
     env, fs,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -33,12 +32,9 @@ type CommandResult<T> = Result<T, String>;
 // ── Modules ──
 
 mod models;
-mod vault;
-mod wards;
-
 use models::*;
-use vault::*;
-use wards::*;
+use db::read_banned_words;
+use llm::{scan_wards, seed_default_banned_words};
 
 #[tauri::command]
 fn app_ping() -> &'static str {
@@ -595,7 +591,7 @@ fn ai_set_api_key(request: AiApiKeyRequest) -> CommandResult<AiProviderSettingsR
     if api_key.is_empty() {
         return Err("API key cannot be empty.".to_string());
     }
-    set_api_key_secret(&request.project_path, request.provider, api_key)?;
+    llm::set_api_key_secret(&request.project_path, request.provider, api_key)?;
     set_setting(
         &connection,
         &provider_setting_key(request.provider, "apiKeyPresent"),
@@ -610,7 +606,7 @@ fn ai_delete_api_key(
     provider: AiProviderKind,
 ) -> CommandResult<AiProviderSettingsResponse> {
     let connection = open_project_database(&project_path)?;
-    delete_api_key_secret(&project_path, provider)?;
+    llm::delete_api_key_secret(&project_path, provider)?;
     set_setting(
         &connection,
         &provider_setting_key(provider, "apiKeyPresent"),
@@ -651,7 +647,7 @@ fn ai_list_models(
 ) -> CommandResult<AiProviderModelsResponse> {
     let connection = open_project_database(&project_path)?;
     match provider {
-        AiProviderKind::Ollama => list_ollama_models(&connection),
+        AiProviderKind::Ollama => llm::list_ollama_models(&connection),
         _ => {
             let settings = provider_settings(&connection, provider)?;
             let selected_model = settings
@@ -700,12 +696,12 @@ fn ai_chat(request: AiChatRequest) -> CommandResult<AiChatResponse> {
     }
 
     match request.provider {
-        AiProviderKind::Ollama => chat_ollama(&request),
+        AiProviderKind::Ollama => llm::chat_ollama(&request),
         AiProviderKind::OpenAi | AiProviderKind::OpenAiCompatible => {
-            chat_openai_compatible(&connection, &request)
+            llm::chat_openai_compatible(&connection, &request)
         }
-        AiProviderKind::Anthropic => chat_anthropic(&connection, &request),
-        AiProviderKind::GoogleAiStudio => chat_google(&connection, &request),
+        AiProviderKind::Anthropic => llm::chat_anthropic(&connection, &request),
+        AiProviderKind::GoogleAiStudio => llm::chat_google(&connection, &request),
     }
 }
 
@@ -1977,54 +1973,6 @@ fn provider_settings(
     })
 }
 
-fn list_ollama_models(connection: &Connection) -> CommandResult<AiProviderModelsResponse> {
-    let base_url = "http://127.0.0.1:11434";
-    match fetch_ollama_models(base_url) {
-        Ok(models) => {
-            let previous = get_setting(
-                connection,
-                &provider_setting_key(AiProviderKind::Ollama, "selectedModel"),
-            )?
-            .or_else(|| {
-                get_setting(connection, "ollama.selectedModel")
-                    .ok()
-                    .flatten()
-            });
-            let model_names: Vec<String> = models.iter().map(|model| model.name.clone()).collect();
-            let selected_model = select_ollama_model(previous, &model_names);
-            if let Some(model) = selected_model.as_deref().filter(|_| model_names.len() == 1) {
-                set_setting(
-                    connection,
-                    &provider_setting_key(AiProviderKind::Ollama, "selectedModel"),
-                    model,
-                )?;
-            }
-            let message = if models.is_empty() {
-                "Ollama is running, but no local models are installed. Install one with `ollama pull <model>` and refresh models.".to_string()
-            } else if selected_model.is_some() {
-                "Ollama model ready.".to_string()
-            } else {
-                "Ollama found multiple local models. Choose one to enable Co-Writer requests."
-                    .to_string()
-            };
-
-            Ok(AiProviderModelsResponse {
-                provider: AiProviderKind::Ollama,
-                reachable: true,
-                models,
-                selected_model,
-                message,
-            })
-        }
-        Err(message) => Ok(AiProviderModelsResponse {
-            provider: AiProviderKind::Ollama,
-            reachable: false,
-            models: Vec::new(),
-            selected_model: None,
-            message,
-        }),
-    }
-}
 
 fn select_ollama_model(previous: Option<String>, model_names: &[String]) -> Option<String> {
     if let Some(model) = previous.filter(|model| model_names.contains(model)) {
@@ -2048,408 +1996,6 @@ fn set_setting(connection: &Connection, key: &str, value: &str) -> CommandResult
         )
         .map_err(|error| format!("Could not write setting {key}: {error}"))?;
     Ok(())
-}
-
-fn secret_account(project_path: &str, provider: AiProviderKind) -> String {
-    let mut project_hash: u64 = 1469598103934665603;
-    for byte in project_path.as_bytes() {
-        project_hash ^= *byte as u64;
-        project_hash = project_hash.wrapping_mul(1099511628211);
-    }
-    format!("{:016x}-{}", project_hash, provider.as_key())
-}
-
-fn secret_service(provider: AiProviderKind) -> String {
-    format!("com.witchdaddylabs.grimoire.{}", provider.as_key())
-}
-
-fn secret_entry(project_path: &str, provider: AiProviderKind) -> CommandResult<Entry> {
-    Entry::new(
-        &secret_service(provider),
-        &secret_account(project_path, provider),
-    )
-    .map_err(|error| format!("Could not open the secure credential store: {error}"))
-}
-
-fn set_api_key_secret(
-    project_path: &str,
-    provider: AiProviderKind,
-    api_key: &str,
-) -> CommandResult<()> {
-    secret_entry(project_path, provider)?
-        .set_password(api_key)
-        .map_err(|error| format!("Could not save provider API key in the credential store: {error}"))
-}
-
-fn get_api_key_secret(
-    project_path: &str,
-    provider: AiProviderKind,
-) -> CommandResult<Option<String>> {
-    match secret_entry(project_path, provider)?.get_password() {
-        Ok(key) => {
-            let key = key.trim().to_string();
-            if key.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(key))
-            }
-        }
-        Err(KeyringError::NoEntry) => Ok(None),
-        Err(error) => Err(format!("Could not read provider API key: {error}")),
-    }
-}
-
-fn delete_api_key_secret(project_path: &str, provider: AiProviderKind) -> CommandResult<()> {
-    match secret_entry(project_path, provider)?.delete_credential() {
-        Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
-        Err(error) => Err(format!("Could not delete provider API key: {error}")),
-    }
-}
-
-fn fetch_ollama_models(base_url: &str) -> Result<Vec<AiModelInfo>, String> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(3))
-        .build()
-        .map_err(|error| format!("Could not prepare Ollama client: {error}"))?;
-    let response: Value = client
-        .get(format!("{base_url}/api/tags"))
-        .send()
-        .map_err(|error| format!("Ollama is not reachable at {base_url}: {error}"))?
-        .json()
-        .map_err(|error| format!("Could not read Ollama model list: {error}"))?;
-    let models = response
-        .get("models")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| {
-                    let name = item.get("name")?.as_str()?.to_string();
-                    Some(AiModelInfo {
-                        name,
-                        modified_at: item
-                            .get("modified_at")
-                            .and_then(Value::as_str)
-                            .map(ToString::to_string),
-                        size: item.get("size").and_then(Value::as_i64),
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    Ok(models)
-}
-
-fn chat_ollama(request: &AiChatRequest) -> CommandResult<AiChatResponse> {
-    let content = if request.grounded_context.trim().is_empty() {
-        request.prompt.clone()
-    } else {
-        format!(
-            "{}\n\nUser request:\n{}",
-            request.grounded_context, request.prompt
-        )
-    };
-    let client = http_client(Duration::from_secs(120))?;
-    let payload = json!({
-        "model": request.model,
-        "stream": false,
-        "messages": [
-            {
-                "role": "user",
-                "content": content
-            }
-        ]
-    });
-    let response: Value = client
-        .post("http://127.0.0.1:11434/api/chat")
-        .json(&payload)
-        .send()
-        .map_err(|error| format!("Could not reach Ollama chat endpoint: {error}"))?
-        .json()
-        .map_err(|error| format!("Could not read Ollama chat response: {error}"))?;
-    let text = response
-        .get("message")
-        .and_then(|message| message.get("content"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    if text.is_empty() {
-        return Err("Ollama returned an empty response.".to_string());
-    }
-    Ok(AiChatResponse {
-        provider: AiProviderKind::Ollama,
-        model: request.model.clone(),
-        text,
-        request_id: None,
-        input_tokens: None,
-        output_tokens: None,
-    })
-}
-
-fn chat_openai_compatible(
-    connection: &Connection,
-    request: &AiChatRequest,
-) -> CommandResult<AiChatResponse> {
-    let api_key = get_api_key_secret(&request.project_path, request.provider)?
-        .ok_or("Add an API key for this cloud provider before sending a Co-Writer request.")?;
-    let base_url = provider_settings(connection, request.provider)?
-        .base_url
-        .ok_or("Set a base URL for this OpenAI-compatible provider.")?;
-    let url = if request.provider == AiProviderKind::OpenAi {
-        format!("{}/v1/chat/completions", base_url.trim_end_matches('/'))
-    } else {
-        openai_compatible_url(&base_url)
-    };
-    let client = http_client(Duration::from_secs(120))?;
-    let payload = json!({
-        "model": request.model,
-        "messages": [
-            {
-                "role": "system",
-                "content": "Use the provided Grimoire context. Cite local sources when present. Do not claim access to unavailable context."
-            },
-            {
-                "role": "user",
-                "content": format!("{}\n\nUser request:\n{}", request.grounded_context, request.prompt)
-            }
-        ]
-    });
-    let response = client
-        .post(url)
-        .bearer_auth(api_key)
-        .json(&payload)
-        .send()
-        .map_err(|error| format!("Cloud provider request failed: {error}"))?;
-    let status = response.status().as_u16();
-    let raw = response
-        .text()
-        .map_err(|error| format!("Could not read cloud provider response: {error}"))?;
-    if !(200..300).contains(&status) {
-        return Err(cloud_http_error("Cloud provider", status));
-    }
-    let response: Value = serde_json::from_str(&raw)
-        .map_err(|error| format!("Could not parse cloud provider response: {error}"))?;
-    let text = openai_chat_text(&response)
-        .ok_or("Cloud provider returned an empty response.".to_string())?;
-    Ok(AiChatResponse {
-        provider: request.provider,
-        model: request.model.clone(),
-        text,
-        request_id: response
-            .get("id")
-            .and_then(Value::as_str)
-            .map(ToString::to_string),
-        input_tokens: response
-            .get("usage")
-            .and_then(|usage| usage.get("prompt_tokens"))
-            .and_then(Value::as_i64),
-        output_tokens: response
-            .get("usage")
-            .and_then(|usage| usage.get("completion_tokens"))
-            .and_then(Value::as_i64),
-    })
-}
-
-fn chat_anthropic(
-    connection: &Connection,
-    request: &AiChatRequest,
-) -> CommandResult<AiChatResponse> {
-    let api_key = get_api_key_secret(&request.project_path, request.provider)?
-        .ok_or("Add an API key for Anthropic before sending a Co-Writer request.")?;
-    let base_url = provider_settings(connection, request.provider)?
-        .base_url
-        .unwrap_or_else(|| "https://api.anthropic.com".to_string());
-    let client = http_client(Duration::from_secs(120))?;
-    let payload = json!({
-        "model": request.model,
-        "max_tokens": 1200,
-        "system": "Use the provided Grimoire context. Cite local sources when present. Do not claim access to unavailable context.",
-        "messages": [
-            {
-                "role": "user",
-                "content": format!("{}\n\nUser request:\n{}", request.grounded_context, request.prompt)
-            }
-        ]
-    });
-    let mut request_builder =
-        client.post(format!("{}/v1/messages", base_url.trim_end_matches('/')));
-    for (name, value) in anthropic_headers(&api_key) {
-        request_builder = request_builder.header(name, value);
-    }
-    let response = request_builder
-        .json(&payload)
-        .send()
-        .map_err(|error| format!("Anthropic request failed: {error}"))?;
-    let status = response.status().as_u16();
-    let raw = response
-        .text()
-        .map_err(|error| format!("Could not read Anthropic response: {error}"))?;
-    if !(200..300).contains(&status) {
-        return Err(cloud_http_error("Anthropic", status));
-    }
-    let response: Value = serde_json::from_str(&raw)
-        .map_err(|error| format!("Could not parse Anthropic response: {error}"))?;
-    let text = anthropic_chat_text(&response)
-        .ok_or("Anthropic returned an empty response.".to_string())?;
-    Ok(AiChatResponse {
-        provider: request.provider,
-        model: request.model.clone(),
-        text,
-        request_id: response
-            .get("id")
-            .and_then(Value::as_str)
-            .map(ToString::to_string),
-        input_tokens: response
-            .get("usage")
-            .and_then(|usage| usage.get("input_tokens"))
-            .and_then(Value::as_i64),
-        output_tokens: response
-            .get("usage")
-            .and_then(|usage| usage.get("output_tokens"))
-            .and_then(Value::as_i64),
-    })
-}
-
-fn chat_google(connection: &Connection, request: &AiChatRequest) -> CommandResult<AiChatResponse> {
-    let api_key = get_api_key_secret(&request.project_path, request.provider)?
-        .ok_or("Add an API key for Google AI Studio before sending a Co-Writer request.")?;
-    let base_url = provider_settings(connection, request.provider)?
-        .base_url
-        .unwrap_or_else(|| "https://generativelanguage.googleapis.com".to_string());
-    let client = http_client(Duration::from_secs(120))?;
-    let payload = json!({
-        "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {
-                        "text": format!("Use the provided Grimoire context. Cite local sources when present. Do not claim access to unavailable context.\n\n{}\n\nUser request:\n{}", request.grounded_context, request.prompt)
-                    }
-                ]
-            }
-        ]
-    });
-    let url = if base_url.trim_end_matches('/') == "https://generativelanguage.googleapis.com" {
-        gemini_generate_content_url(&request.model)
-    } else {
-        format!(
-            "{}/v1beta/models/{}:generateContent",
-            base_url.trim_end_matches('/'),
-            request.model
-        )
-    };
-    let response = client
-        .post(url)
-        .header("x-goog-api-key", api_key)
-        .json(&payload)
-        .send()
-        .map_err(|error| format!("Google AI Studio request failed: {error}"))?;
-    let status = response.status().as_u16();
-    let raw = response
-        .text()
-        .map_err(|error| format!("Could not read Google AI Studio response: {error}"))?;
-    if !(200..300).contains(&status) {
-        return Err(cloud_http_error("Google AI Studio", status));
-    }
-    let response: Value = serde_json::from_str(&raw)
-        .map_err(|error| format!("Could not parse Google AI Studio response: {error}"))?;
-    let text = gemini_chat_text(&response)
-        .ok_or("Google AI Studio returned an empty response.".to_string())?;
-    Ok(AiChatResponse {
-        provider: request.provider,
-        model: request.model.clone(),
-        text,
-        request_id: None,
-        input_tokens: response
-            .get("usageMetadata")
-            .and_then(|usage| usage.get("promptTokenCount"))
-            .and_then(Value::as_i64),
-        output_tokens: response
-            .get("usageMetadata")
-            .and_then(|usage| usage.get("candidatesTokenCount"))
-            .and_then(Value::as_i64),
-    })
-}
-
-fn http_client(timeout: Duration) -> CommandResult<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
-        .timeout(timeout)
-        .build()
-        .map_err(|error| format!("Could not prepare HTTP client: {error}"))
-}
-
-fn cloud_http_error(provider: &str, status: u16) -> String {
-    match status {
-        401 | 403 => format!("{provider} rejected the API key or account permissions."),
-        404 => format!("{provider} could not find that model or endpoint."),
-        408 | 429 => format!("{provider} is rate limited, over quota, or timed out."),
-        500..=599 => format!("{provider} returned a temporary server error ({status})."),
-        _ => format!("{provider} request failed with HTTP status {status}."),
-    }
-}
-
-fn openai_compatible_url(base_url: &str) -> String {
-    format!("{}/v1/chat/completions", base_url.trim_end_matches('/'))
-}
-
-fn openai_chat_text(response: &Value) -> Option<String> {
-    response
-        .get("choices")
-        .and_then(Value::as_array)
-        .and_then(|choices| choices.first())
-        .and_then(|choice| choice.get("message"))
-        .and_then(|message| message.get("content"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(ToString::to_string)
-}
-
-fn anthropic_headers(api_key: &str) -> Vec<(String, String)> {
-    vec![
-        ("x-api-key".to_string(), api_key.to_string()),
-        ("anthropic-version".to_string(), "2023-06-01".to_string()),
-        ("content-type".to_string(), "application/json".to_string()),
-    ]
-}
-
-fn anthropic_chat_text(response: &Value) -> Option<String> {
-    response
-        .get("content")
-        .and_then(Value::as_array)
-        .map(|blocks| {
-            blocks
-                .iter()
-                .filter_map(|block| block.get("text").and_then(Value::as_str))
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .map(|text| text.trim().to_string())
-        .filter(|text| !text.is_empty())
-}
-
-fn gemini_generate_content_url(model: &str) -> String {
-    format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent")
-}
-
-fn gemini_chat_text(response: &Value) -> Option<String> {
-    response
-        .get("candidates")
-        .and_then(Value::as_array)
-        .and_then(|candidates| candidates.first())
-        .and_then(|candidate| candidate.get("content"))
-        .and_then(|content| content.get("parts"))
-        .and_then(Value::as_array)
-        .map(|parts| {
-            parts
-                .iter()
-                .filter_map(|part| part.get("text").and_then(Value::as_str))
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .map(|text| text.trim().to_string())
-        .filter(|text| !text.is_empty())
 }
 
 fn sanitize_filename(value: &str) -> String {
@@ -2592,14 +2138,14 @@ mod tests {
     #[test]
     fn provider_url_helpers_are_stable() {
         assert_eq!(
-            openai_compatible_url("https://example.test/"),
+            llm::openai_compatible_url("https://example.test/"),
             "https://example.test/v1/chat/completions"
         );
-        assert!(anthropic_headers("test-key")
+        assert!(llm::anthropic_headers("test-key")
             .iter()
             .any(|(name, value)| name == "anthropic-version" && value == "2023-06-01"));
         assert_eq!(
-            gemini_generate_content_url("gemini-2.5-flash"),
+            llm::gemini_generate_content_url("gemini-2.5-flash"),
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
         );
     }
@@ -2660,7 +2206,7 @@ mod tests {
             ]
         });
         assert_eq!(
-            openai_chat_text(&openai_response),
+            llm::openai_chat_text(&openai_response),
             Some("OpenAI answer.".to_string())
         );
 
@@ -2677,7 +2223,7 @@ mod tests {
             ]
         });
         assert_eq!(
-            anthropic_chat_text(&anthropic_response),
+            llm::anthropic_chat_text(&anthropic_response),
             Some("First block.\nSecond block.".to_string())
         );
 
@@ -2695,16 +2241,16 @@ mod tests {
             ]
         });
         assert_eq!(
-            gemini_chat_text(&gemini_response),
+            llm::gemini_chat_text(&gemini_response),
             Some("Gemini answer.".to_string())
         );
     }
 
     #[test]
     fn cloud_response_parsers_reject_empty_text() {
-        assert_eq!(openai_chat_text(&json!({"choices": []})), None);
-        assert_eq!(anthropic_chat_text(&json!({"content": []})), None);
-        assert_eq!(gemini_chat_text(&json!({"candidates": []})), None);
+        assert_eq!(llm::openai_chat_text(&json!({"choices": []})), None);
+        assert_eq!(llm::anthropic_chat_text(&json!({"content": []})), None);
+        assert_eq!(llm::gemini_chat_text(&json!({"candidates": []})), None);
     }
 }
 

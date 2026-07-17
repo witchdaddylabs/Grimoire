@@ -1,3 +1,3 @@
 // src/features/vault/index.ts
-export { VaultPanel } from "./VaultPanel";
+// Sprint 1 cleanup: VaultPanel removed (orphaned by Sprint 5 App.tsx rewrite)
 export { VaultTree } from "./VaultTree";
