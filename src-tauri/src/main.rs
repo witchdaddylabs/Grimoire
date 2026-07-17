@@ -844,6 +844,99 @@ fn export_vault_items_json(project_path: String) -> CommandResult<ExportResponse
 }
 
 #[tauri::command]
+fn manuscript_export(request: ManuscriptExportRequest) -> CommandResult<ExportResponse> {
+    let project_dir = validate_project_dir(PathBuf::from(&request.project_path))?;
+    let connection = open_project_database(&request.project_path)?;
+    let export_dir = project_dir.join("exports");
+    fs::create_dir_all(&export_dir)
+        .map_err(|error| format!("Could not create export folder: {error}"))?;
+
+    let tree = read_vault_tree(&connection)?;
+    let mut markdown = String::new();
+    markdown.push_str(&format!("# {}\n\n", request.project_name));
+
+    for wing in &tree.wings {
+        markdown.push_str(&format!("# {}\n\n", wing.name));
+        for hall in &wing.halls {
+            markdown.push_str(&format!("## {}\n\n", hall.name));
+            for room in &hall.rooms {
+                markdown.push_str(&format!("### {}\n\n", room.name));
+                for drawer in &room.drawers {
+                    markdown.push_str(&format!("#### {}\n\n", drawer.name));
+                    for item in &drawer.items {
+                        markdown.push_str(&format!("##### {}\n\n", item.title));
+                        let content = item.content.as_deref().unwrap_or("").trim();
+                        if !content.is_empty() {
+                            markdown.push_str(&format!("{}\n\n", content));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let ext = if request.format.as_deref() == Some("markdown") { "md" } else { "md" };
+    let file_path = export_dir.join(format!("grimoire-manuscript-{}.{}", sanitize_filename(&request.project_name), ext));
+    fs::write(&file_path, markdown)
+        .map_err(|error| format!("Could not write manuscript export: {error}"))?;
+
+    Ok(ExportResponse {
+        path: file_path.to_string_lossy().to_string(),
+        message: "Manuscript export written.".to_string(),
+    })
+}
+
+#[tauri::command]
+fn reorder_item(request: ItemReorderRequest) -> CommandResult<VaultTreeResponse> {
+    let connection = open_project_database(&request.project_path)?;
+    let direction = request.direction.as_deref().unwrap_or("down");
+    let current: i64 = connection
+        .query_row(
+            "SELECT sort_order FROM items WHERE id = ?1 AND archived_at IS NULL",
+            params![request.item_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("Could not read item: {error}"))?;
+
+    let drawer_id: String = connection
+        .query_row(
+            "SELECT drawer_id FROM items WHERE id = ?1",
+            params![request.item_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "Could not find item drawer.".to_string())?;
+
+    let swap_with = if direction == "up" {
+        connection.query_row(
+            "SELECT id, sort_order FROM items WHERE drawer_id = ?1 AND sort_order < ?2 AND archived_at IS NULL ORDER BY sort_order DESC LIMIT 1",
+            params![drawer_id, current],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        ).ok()
+    } else if direction == "down" {
+        connection.query_row(
+            "SELECT id, sort_order FROM items WHERE drawer_id = ?1 AND sort_order > ?2 AND archived_at IS NULL ORDER BY sort_order ASC LIMIT 1",
+            params![drawer_id, current],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        ).ok()
+    } else {
+        None
+    };
+
+    if let Some((other_id, other_order)) = swap_with {
+        connection.execute(
+            "UPDATE items SET sort_order = ?1, updated_at = ?2 WHERE id = ?3",
+            params![other_order, timestamp(), request.item_id],
+        ).map_err(|error| format!("Could not reorder item: {error}"))?;
+        connection.execute(
+            "UPDATE items SET sort_order = ?1, updated_at = ?2 WHERE id = ?3",
+            params![current, timestamp(), other_id],
+        ).map_err(|error| format!("Could not reorder item: {error}"))?;
+    }
+
+    read_vault_tree(&connection)
+}
+
+#[tauri::command]
 fn external_vault_parse(path: Option<String>) -> CommandResult<ExternalVaultStructure> {
     parse_external_vault(path)
 }
@@ -884,6 +977,8 @@ fn main() {
             ollama_chat,
             export_item_markdown,
             export_vault_items_json,
+            manuscript_export,
+            reorder_item,
             external_vault_parse,
             export_project_json
         ])

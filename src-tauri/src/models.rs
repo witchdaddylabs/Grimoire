@@ -379,6 +379,24 @@ pub struct ExportResponse {
     pub message: String,
 }
 
+// ── Manuscript export ──
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManuscriptExportRequest {
+    pub project_path: String,
+    pub project_name: String,
+    pub format: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemReorderRequest {
+    pub project_path: String,
+    pub item_id: String,
+    pub direction: Option<String>,
+}
+
 // Note: AI provider types (AiProviderKind, AiProviderSettings, etc.) are in ai/mod.rs
 // and imported at the top of main.rs. Do not duplicate them here.
 // The OllamaModel From<AiModelInfo> impl is also in ai/mod.rs to avoid circular deps.
