@@ -277,6 +277,18 @@ export function exportVaultItemsJson(projectPath: string) {
   return invoke<ExportResponse>("export_vault_items_json", { projectPath });
 }
 
+export function manuscriptExport(projectPath: string, projectName: string, format?: string) {
+  return invoke<ExportResponse>("manuscript_export", {
+    request: { projectPath, projectName, format: format ?? null },
+  });
+}
+
+export function reorderItem(projectPath: string, itemId: string, direction: "up" | "down") {
+  return invoke<VaultTreeResponse>("reorder_item", {
+    request: { projectPath, itemId, direction },
+  });
+}
+
 export function parseExternalVault(path?: string) {
   return invoke<ExternalVaultStructure>("external_vault_parse", { path });
 }
