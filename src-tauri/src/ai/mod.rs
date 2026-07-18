@@ -67,10 +67,6 @@ pub const PROVIDERS: [AiProviderKind; 4] = [
     AiProviderKind::GoogleAiStudio,
 ];
 
-pub fn cloud_provider(provider: &AiProviderKind) -> bool {
-    !matches!(provider, AiProviderKind::Ollama)
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiProviderSettings {
@@ -164,15 +160,6 @@ pub struct AiApiKeyRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn identifies_cloud_providers() {
-        assert!(!cloud_provider(&AiProviderKind::Ollama));
-        assert!(cloud_provider(&AiProviderKind::OpenAi));
-        assert!(cloud_provider(&AiProviderKind::OpenAiCompatible));
-        assert!(cloud_provider(&AiProviderKind::Anthropic));
-        assert!(cloud_provider(&AiProviderKind::GoogleAiStudio));
-    }
 
     #[test]
     fn disclosure_mentions_privacy_policy() {
