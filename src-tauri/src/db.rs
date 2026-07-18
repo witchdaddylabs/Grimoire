@@ -1,4 +1,5 @@
 use crate::errors::CommandResult;
+use crate::helpers::{timestamp, timestamp_nanos};
 use crate::models::{
     BannedWord, SearchChunkResult, VaultDrawerNode, VaultHallNode, VaultItemDetail, VaultItemNode,
     VaultRoomNode, VaultTreeResponse, VaultWingNode, WardScanResponse,
@@ -281,7 +282,7 @@ pub fn item_type(connection: &Connection, item_id: &str) -> CommandResult<String
 }
 
 pub fn ensure_import_drawer(connection: &Connection) -> CommandResult<String> {
-    let now = super::timestamp();
+    let now = timestamp();
     connection
         .execute(
             r#"
@@ -358,8 +359,8 @@ pub fn sync_item_chunks(
     text: &str,
 ) -> CommandResult<usize> {
     clear_item_chunks(connection, item_id)?;
-    let chunks = super::chunk_text(text, 240);
-    let now = super::timestamp();
+    let chunks = chunk_text(text, 240);
+    let now = timestamp();
     for (index, chunk) in chunks.iter().enumerate() {
         let chunk_id = format!("{item_id}_chunk_{index}");
         connection
@@ -444,7 +445,7 @@ pub fn add_banned_word(
     value: &str,
     severity: &str,
 ) -> CommandResult<Vec<BannedWord>> {
-    let now = super::timestamp();
+    let now = timestamp();
     connection
         .execute(
             r#"
@@ -452,7 +453,7 @@ pub fn add_banned_word(
             VALUES (?1, ?2, ?3, 0, ?4, ?4)
             ON CONFLICT(value) DO UPDATE SET severity = excluded.severity, updated_at = excluded.updated_at
             "#,
-            params![format!("ward_{}", super::timestamp_nanos()), value, severity, now],
+            params![format!("ward_{}", timestamp_nanos()), value, severity, now],
         )
         .map_err(|error| format!("Could not save ward phrase: {error}"))?;
 
@@ -554,4 +555,43 @@ pub fn scan_wards_internal(
 ) -> CommandResult<WardScanResponse> {
     let words = read_banned_words(connection)?;
     Ok(crate::llm::scan_wards(&words, text))
+}
+
+pub const MAX_IMPORT_WORDS: i64 = 10_000;
+
+pub fn chunk_text(text: &str, max_words: usize) -> Vec<String> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() {
+        return Vec::new();
+    }
+
+    words
+        .chunks(max_words.max(1))
+        .map(|chunk| chunk.join(" "))
+        .collect()
+}
+
+pub fn ensure_hierarchy_node(
+    connection: &Connection,
+    table: &str,
+    id: &str,
+    label: &str,
+) -> CommandResult<()> {
+    let query = format!("SELECT COUNT(*) FROM {table} WHERE id = ?1");
+    let count: i64 = connection
+        .query_row(&query, params![id], |row| row.get(0))
+        .map_err(|error| format!("Could not verify parent {label}: {error}"))?;
+    if count == 0 {
+        return Err(format!("Parent {label} not found."));
+    }
+    Ok(())
+}
+
+pub fn import_progress_labels() -> Vec<String> {
+    vec![
+        "Reading the bones".to_string(),
+        "Distilling word essence".to_string(),
+        "Mapping canon traces".to_string(),
+        "Stocking the Vault".to_string(),
+    ]
 }

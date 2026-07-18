@@ -1,4 +1,4 @@
-use crate::models::{
+pub use crate::models::{
     ExternalVaultDrawer, ExternalVaultRoom, ExternalVaultStructure, ExternalVaultWing,
 };
 use serde_yaml::Value;
