@@ -8,6 +8,7 @@ mod external_vault;
 mod helpers;
 mod llm;
 mod models;
+mod settings;
 
 use commands::{
     ai as ai_cmds,
