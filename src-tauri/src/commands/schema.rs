@@ -281,3 +281,157 @@ pub fn upsert_project_metadata(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn
+    }
+
+    #[test]
+    fn run_migrations_creates_tables() {
+        let mut conn = test_db();
+        run_migrations(&mut conn).unwrap();
+
+        let tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert!(tables.contains(&"wings".to_string()));
+        assert!(tables.contains(&"halls".to_string()));
+        assert!(tables.contains(&"rooms".to_string()));
+        assert!(tables.contains(&"drawers".to_string()));
+        assert!(tables.contains(&"items".to_string()));
+        assert!(tables.contains(&"item_chunks".to_string()));
+        assert!(tables.contains(&"banned_words".to_string()));
+        assert!(tables.contains(&"settings".to_string()));
+        assert!(tables.contains(&"project_metadata".to_string()));
+        assert!(tables.contains(&"schema_migrations".to_string()));
+    }
+
+    #[test]
+    fn run_migrations_records_version() {
+        let mut conn = test_db();
+        run_migrations(&mut conn).unwrap();
+
+        let version: i64 = conn
+            .query_row(
+                "SELECT version FROM schema_migrations WHERE name = 'archive_items'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn run_migrations_idempotent() {
+        let mut conn = test_db();
+        run_migrations(&mut conn).unwrap();
+        run_migrations(&mut conn).unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn run_migrations_adds_archive_column() {
+        let mut conn = test_db();
+        run_migrations(&mut conn).unwrap();
+
+        let mut statement = conn.prepare("PRAGMA table_info(items)").unwrap();
+        let columns: Vec<String> = statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(columns.contains(&"archived_at".to_string()));
+    }
+
+    #[test]
+    fn seed_vault_demo_data_inserts_hierarchy() {
+        let conn = test_db();
+        conn.execute_batch(INITIAL_SCHEMA).unwrap();
+        seed_vault_demo_data(&conn).unwrap();
+
+        let wing_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM wings", [], |row| row.get(0))
+            .unwrap();
+        assert!(wing_count > 0, "Expected demo wings to be inserted");
+
+        let hall_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM halls", [], |row| row.get(0))
+            .unwrap();
+        assert!(hall_count > 0, "Expected demo halls to be inserted");
+
+        let item_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM items", [], |row| row.get(0))
+            .unwrap();
+        assert!(item_count > 0, "Expected demo items to be inserted");
+    }
+
+    #[test]
+    fn seed_vault_demo_data_idempotent() {
+        let conn = test_db();
+        conn.execute_batch(INITIAL_SCHEMA).unwrap();
+        seed_vault_demo_data(&conn).unwrap();
+        seed_vault_demo_data(&conn).unwrap();
+
+        let wing_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM wings", [], |row| row.get(0))
+            .unwrap();
+        assert!(wing_count > 0);
+    }
+
+    #[test]
+    fn upsert_project_metadata_writes_and_updates() {
+        let mut conn = test_db();
+        run_migrations(&mut conn).unwrap();
+
+        let metadata = crate::models::ProjectMetadata {
+            name: "Test Project".to_string(),
+            project_path: "/tmp/test.grimoire".to_string(),
+            database_path: ":memory:".to_string(),
+            app_version: "1.0.0".to_string(),
+            schema_version: SCHEMA_VERSION as i64,
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+
+        upsert_project_metadata(&conn, &metadata).unwrap();
+
+        let name: String = conn
+            .query_row(
+                "SELECT value FROM project_metadata WHERE key = 'name'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(name, "Test Project");
+
+        let updated = crate::models::ProjectMetadata {
+            name: "Updated Project".to_string(),
+            ..metadata
+        };
+        upsert_project_metadata(&conn, &updated).unwrap();
+
+        let name: String = conn
+            .query_row(
+                "SELECT value FROM project_metadata WHERE key = 'name'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(name, "Updated Project");
+    }
+}

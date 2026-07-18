@@ -729,3 +729,60 @@ pub fn chat_with_vault(
         request_id: chat_response.request_id,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn select_ollama_model_picks_previous_if_present() {
+        let models = vec!["llama3".to_string(), "mistral".to_string()];
+        let result = select_ollama_model(Some("mistral".to_string()), &models);
+        assert_eq!(result.as_deref(), Some("mistral"));
+    }
+
+    #[test]
+    fn select_ollama_model_picks_first_when_single() {
+        let models = vec!["llama3".to_string()];
+        let result = select_ollama_model(None, &models);
+        assert_eq!(result.as_deref(), Some("llama3"));
+    }
+
+    #[test]
+    fn select_ollama_model_returns_none_for_multiple_without_previous() {
+        let models = vec!["llama3".to_string(), "mistral".to_string()];
+        let result = select_ollama_model(None, &models);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn select_ollama_model_returns_none_for_empty() {
+        let result = select_ollama_model(None, &[]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn provider_setting_key_format() {
+        let key = provider_setting_key(AiProviderKind::OpenAi, "apiKeyPresent");
+        assert_eq!(key, "ai.provider.openAi.apiKeyPresent");
+    }
+
+    #[test]
+    fn provider_setting_key_ollama() {
+        let key = provider_setting_key(AiProviderKind::Ollama, "selectedModel");
+        assert_eq!(key, "ai.provider.ollama.selectedModel");
+    }
+
+    #[test]
+    fn cloud_provider_true_for_cloud() {
+        assert!(cloud_provider(&AiProviderKind::OpenAi));
+        assert!(cloud_provider(&AiProviderKind::Anthropic));
+        assert!(cloud_provider(&AiProviderKind::GoogleAiStudio));
+        assert!(cloud_provider(&AiProviderKind::OpenAiCompatible));
+    }
+
+    #[test]
+    fn cloud_provider_false_for_local() {
+        assert!(!cloud_provider(&AiProviderKind::Ollama));
+    }
+}

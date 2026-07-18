@@ -595,3 +595,267 @@ pub fn import_progress_labels() -> Vec<String> {
         "Stocking the Vault".to_string(),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(crate::commands::schema::INITIAL_SCHEMA)
+            .unwrap();
+        conn
+    }
+
+    fn insert_test_wing(conn: &Connection, id: &str, name: &str) {
+        conn.execute(
+            "INSERT INTO wings (id, name, description, sort_order, created_at, updated_at) VALUES (?1, ?2, NULL, 0, '', '')",
+            params![id, name],
+        )
+        .unwrap();
+    }
+
+    fn insert_test_hall(conn: &Connection, id: &str, wing_id: &str, name: &str) {
+        conn.execute(
+            "INSERT INTO halls (id, wing_id, name, description, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, NULL, 0, '', '')",
+            params![id, wing_id, name],
+        )
+        .unwrap();
+    }
+
+    fn insert_test_room(conn: &Connection, id: &str, hall_id: &str, name: &str) {
+        conn.execute(
+            "INSERT INTO rooms (id, hall_id, name, description, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, NULL, 0, '', '')",
+            params![id, hall_id, name],
+        )
+        .unwrap();
+    }
+
+    fn insert_test_drawer(conn: &Connection, id: &str, room_id: &str, name: &str) {
+        conn.execute(
+            "INSERT INTO drawers (id, room_id, name, description, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, NULL, 0, '', '')",
+            params![id, room_id, name],
+        )
+        .unwrap();
+    }
+
+    fn insert_test_item(conn: &Connection, id: &str, drawer_id: &str, title: &str, item_type: &str) {
+        conn.execute(
+            "INSERT INTO items (id, drawer_id, title, item_type, content, plain_text, word_count, memory_enabled, source_kind, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, '', '', 0, 1, 'manual', 0, '', '')",
+            params![id, drawer_id, title, item_type],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn count_words_empty_string() {
+        assert_eq!(count_words(""), 0);
+        assert_eq!(count_words("   "), 0);
+    }
+
+    #[test]
+    fn count_words_simple() {
+        assert_eq!(count_words("hello world"), 2);
+        assert_eq!(count_words("one two three four five"), 5);
+    }
+
+    #[test]
+    fn normalize_text_basic() {
+        assert_eq!(normalize_text("  hello  "), "hello");
+        assert_eq!(normalize_text("line1\n\n\n\nline2"), "line1\n\n\nline2");
+    }
+
+    #[test]
+    fn chunk_text_respects_max_words() {
+        let text = "one two three four five six seven eight nine ten";
+        let chunks = chunk_text(text, 3);
+        assert!(chunks.len() >= 3);
+        for chunk in &chunks {
+            let word_count = chunk.split_whitespace().count();
+            assert!(word_count <= 3, "chunk has {word_count} words: {chunk}");
+        }
+    }
+
+    #[test]
+    fn chunk_text_single_word() {
+        let chunks = chunk_text("hello", 5);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], "hello");
+    }
+
+    #[test]
+    fn read_vault_tree_empty_db() {
+        let conn = test_db();
+        let tree = read_vault_tree(&conn).unwrap();
+        assert_eq!(tree.wings.len(), 0);
+        assert_eq!(tree.item_count, 0);
+    }
+
+    #[test]
+    fn read_vault_tree_with_hierarchy() {
+        let conn = test_db();
+        insert_test_wing(&conn, "w1", "Act One");
+        insert_test_hall(&conn, "h1", "w1", "Characters");
+        insert_test_room(&conn, "r1", "h1", "Protagonists");
+        insert_test_drawer(&conn, "d1", "r1", "Main Cast");
+        insert_test_item(&conn, "i1", "d1", "Alice", "character");
+        insert_test_item(&conn, "i2", "d1", "Bob", "character");
+
+        let tree = read_vault_tree(&conn).unwrap();
+        assert_eq!(tree.wings.len(), 1);
+        assert_eq!(tree.item_count, 2);
+        assert_eq!(tree.wings[0].name, "Act One");
+        assert_eq!(tree.wings[0].halls.len(), 1);
+        assert_eq!(tree.wings[0].halls[0].rooms.len(), 1);
+        assert_eq!(tree.wings[0].halls[0].rooms[0].drawers.len(), 1);
+        assert_eq!(tree.wings[0].halls[0].rooms[0].drawers[0].items.len(), 2);
+        assert_eq!(tree.wings[0].halls[0].rooms[0].drawers[0].items[0].title, "Alice");
+        assert_eq!(tree.wings[0].halls[0].rooms[0].drawers[0].items[1].title, "Bob");
+    }
+
+    #[test]
+    fn read_item_detail_existing() {
+        let conn = test_db();
+        insert_test_wing(&conn, "w1", "Wing");
+        insert_test_hall(&conn, "h1", "w1", "Hall");
+        insert_test_room(&conn, "r1", "h1", "Room");
+        insert_test_drawer(&conn, "d1", "r1", "Drawer");
+        conn.execute(
+            "INSERT INTO items (id, drawer_id, title, item_type, content, plain_text, word_count, memory_enabled, source_kind, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 'body text', 'body text', 2, 1, 'manual', 0, '', '')",
+            params!["i1", "d1", "Test Item", "note"],
+        )
+        .unwrap();
+
+        let detail = read_item_detail(&conn, "i1").unwrap();
+        assert_eq!(detail.id, "i1");
+        assert_eq!(detail.title, "Test Item");
+        assert_eq!(detail.content, "body text");
+        assert_eq!(detail.word_count, 2);
+    }
+
+    #[test]
+    fn read_item_detail_not_found() {
+        let conn = test_db();
+        let result = read_item_detail(&conn, "nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn next_sort_order_empty_table() {
+        let conn = test_db();
+        insert_test_wing(&conn, "w1", "Wing");
+        insert_test_hall(&conn, "h1", "w1", "Hall");
+        insert_test_room(&conn, "r1", "h1", "Room");
+
+        let order = next_sort_order(&conn, "drawers", "room_id", "r1").unwrap();
+        assert_eq!(order, 0);
+    }
+
+    #[test]
+    fn next_sort_order_increments() {
+        let conn = test_db();
+        insert_test_wing(&conn, "w1", "Wing");
+        insert_test_hall(&conn, "h1", "w1", "Hall");
+        insert_test_room(&conn, "r1", "h1", "Room");
+        insert_test_drawer(&conn, "d1", "r1", "Drawer 1");
+
+        let order = next_sort_order(&conn, "drawers", "room_id", "r1").unwrap();
+        assert_eq!(order, 1);
+    }
+
+    #[test]
+    fn ensure_hierarchy_node_existing() {
+        let conn = test_db();
+        insert_test_wing(&conn, "w1", "Wing");
+
+        let result = ensure_hierarchy_node(&conn, "wings", "w1", "wing");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn ensure_hierarchy_node_missing() {
+        let conn = test_db();
+        let result = ensure_hierarchy_node(&conn, "wings", "nonexistent", "wing");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_banned_words_empty() {
+        let conn = test_db();
+        let words = read_banned_words(&conn).unwrap();
+        assert_eq!(words.len(), 0);
+    }
+
+    #[test]
+    fn scan_banned_words_finds_hits() {
+        let words = vec![
+            BannedWord {
+                id: "1".to_string(),
+                value: "slay".to_string(),
+                severity: "block".to_string(),
+                is_default: true,
+            },
+            BannedWord {
+                id: "2".to_string(),
+                value: "kill".to_string(),
+                severity: "warn".to_string(),
+                is_default: true,
+            },
+        ];
+
+        let result = scan_banned_words(&words, "The hero will slay the dragon");
+        assert_eq!(result.hits.len(), 1);
+        assert_eq!(result.hits[0].value, "slay");
+        assert_eq!(result.hits[0].severity, "block");
+    }
+
+    #[test]
+    fn scan_banned_words_no_hits() {
+        let words = vec![BannedWord {
+            id: "1".to_string(),
+            value: "slay".to_string(),
+            severity: "block".to_string(),
+            is_default: true,
+        }];
+
+        let result = scan_banned_words(&words, "The hero walked through the garden");
+        assert_eq!(result.hits.len(), 0);
+    }
+
+    #[test]
+    fn clear_and_sync_item_chunks() {
+        let conn = test_db();
+        insert_test_wing(&conn, "w1", "Wing");
+        insert_test_hall(&conn, "h1", "w1", "Hall");
+        insert_test_room(&conn, "r1", "h1", "Room");
+        insert_test_drawer(&conn, "d1", "r1", "Drawer");
+        insert_test_item(&conn, "i1", "d1", "Item", "note");
+
+        // Insert a chunk manually
+        conn.execute(
+            "INSERT INTO item_chunks (id, item_id, chunk_index, text, word_count, start_offset, end_offset, created_at, updated_at) VALUES (?1, ?2, 0, 'chunk text', 2, 0, 10, '', '')",
+            params!["c1", "i1"],
+        )
+        .unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM item_chunks WHERE item_id = 'i1'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+
+        clear_item_chunks(&conn, "i1").unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM item_chunks WHERE item_id = 'i1'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn import_progress_labels_nonempty() {
+        let labels = import_progress_labels();
+        assert_eq!(labels.len(), 4);
+        assert!(labels.iter().all(|l| !l.is_empty()));
+    }
+}
