@@ -1,5 +1,5 @@
 use crate::helpers::{timestamp, timestamp_nanos};
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 
 use crate::errors::CommandResult;
 
@@ -178,6 +178,106 @@ pub fn seed_vault_demo_data(connection: &Connection) -> CommandResult<()> {
         "#,
     ))
     .map_err(|error| format!("Could not seed demo data: {error}"))?;
+
+    Ok(())
+}
+
+pub fn run_migrations(connection: &mut Connection) -> CommandResult<()> {
+    connection
+        .execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+              version INTEGER PRIMARY KEY,
+              name TEXT NOT NULL,
+              applied_at TEXT NOT NULL
+            );
+            "#,
+        )
+        .map_err(|error| format!("Could not prepare migration table: {error}"))?;
+
+    let already_applied: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM schema_migrations WHERE version = ?1",
+            params![SCHEMA_VERSION],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("Could not read migration state: {error}"))?;
+
+    connection
+        .execute_batch(INITIAL_SCHEMA)
+        .map_err(|error| format!("Could not apply initial schema: {error}"))?;
+    ensure_items_archive_column(connection)?;
+
+    if already_applied == 0 {
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?1, ?2, ?3)",
+                params![SCHEMA_VERSION, "archive_items", timestamp()],
+            )
+            .map_err(|error| format!("Could not record schema migration: {error}"))?;
+    }
+
+    Ok(())
+}
+
+fn ensure_items_archive_column(connection: &Connection) -> CommandResult<()> {
+    let mut statement = connection
+        .prepare("PRAGMA table_info(items)")
+        .map_err(|error| format!("Could not inspect items table: {error}"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| format!("Could not inspect items table columns: {error}"))?;
+
+    let mut has_archived_at = false;
+    for column in columns {
+        if column.map_err(|error| format!("Could not read items table column: {error}"))?
+            == "archived_at"
+        {
+            has_archived_at = true;
+            break;
+        }
+    }
+
+    if !has_archived_at {
+        connection
+            .execute_batch("ALTER TABLE items ADD COLUMN archived_at TEXT;")
+            .map_err(|error| format!("Could not add item archive column: {error}"))?;
+    }
+
+    connection
+        .execute_batch("CREATE INDEX IF NOT EXISTS idx_items_archived_at ON items(archived_at);")
+        .map_err(|error| format!("Could not prepare item archive index: {error}"))?;
+
+    Ok(())
+}
+
+pub fn upsert_project_metadata(
+    connection: &Connection,
+    metadata: &crate::models::ProjectMetadata,
+) -> CommandResult<()> {
+    let updated_at = timestamp();
+    let values = [
+        ("name", metadata.name.clone()),
+        ("app_version", metadata.app_version.clone()),
+        ("schema_version", metadata.schema_version.to_string()),
+        ("project_path", metadata.project_path.clone()),
+        ("database_path", metadata.database_path.clone()),
+    ];
+
+    for (key, value) in values {
+        connection
+            .execute(
+                r#"
+                INSERT INTO project_metadata (key, value, updated_at)
+                VALUES (?1, ?2, ?3)
+                ON CONFLICT(key) DO UPDATE SET
+                  value = excluded.value,
+                  updated_at = excluded.updated_at
+                "#,
+                params![key, value, updated_at],
+            )
+            .map_err(|error| format!("Could not write project metadata to SQLite: {error}"))?;
+    }
 
     Ok(())
 }

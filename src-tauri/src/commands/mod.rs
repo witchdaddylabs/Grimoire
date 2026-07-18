@@ -114,30 +114,18 @@ pub fn write_metadata(metadata: &ProjectMetadata) -> CommandResult<()> {
 }
 
 pub fn initialise_database(metadata: &ProjectMetadata, seed_demo: bool) -> CommandResult<()> {
-    let connection = Connection::open(&metadata.database_path)
+    let mut connection = Connection::open(&metadata.database_path)
         .map_err(|error| format!("Could not open SQLite database: {error}"))?;
     connection
         .execute_batch("PRAGMA foreign_keys = ON;")
         .map_err(|error| format!("Could not enable SQLite foreign keys: {error}"))?;
 
-    let version: i64 = connection
-        .query_row("PRAGMA user_version", [], |row| row.get(0))
-        .unwrap_or(0);
-
-    if version < self::schema::SCHEMA_VERSION {
-        connection
-            .execute_batch(self::schema::INITIAL_SCHEMA)
-            .map_err(|error| format!("Could not create database schema: {error}"))?;
-        connection
-            .execute_batch(&format!(
-                "PRAGMA user_version = {};",
-                self::schema::SCHEMA_VERSION
-            ))
-            .map_err(|error| format!("Could not set schema version: {error}"))?;
-    }
+    self::schema::run_migrations(&mut connection)?;
+    self::schema::upsert_project_metadata(&connection, metadata)?;
+    crate::llm::seed_default_banned_words(&connection)?;
 
     if seed_demo {
-        self::schema::seed_vault_demo_data(&connection)?;
+        self::schema::seed_vault_demo_data(&mut connection)?;
     }
 
     Ok(())
@@ -146,6 +134,7 @@ pub fn initialise_database(metadata: &ProjectMetadata, seed_demo: bool) -> Comma
 pub fn open_project_database(project_path: &str) -> CommandResult<Connection> {
     let project_dir = validate_project_dir(PathBuf::from(project_path))?;
     let metadata = read_metadata(&project_dir)?;
+    initialise_database(&metadata, false)?;
     let connection = Connection::open(&metadata.database_path)
         .map_err(|error| format!("Could not open SQLite database: {error}"))?;
     connection

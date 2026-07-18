@@ -59,14 +59,14 @@ fn main() {
             export_cmds::manuscript_export,
             export_cmds::reorder_item,
             export_cmds::export_project_json,
-            external_vault_cmd,
+            external_vault_parse,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Grimoire");
 }
 
 #[tauri::command]
-fn external_vault_cmd(path: Option<String>) -> Result<external_vault::ExternalVaultStructure, String> {
+fn external_vault_parse(path: Option<String>) -> Result<external_vault::ExternalVaultStructure, String> {
     external_vault::parse_external_vault(path)
 }
 
