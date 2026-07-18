@@ -22,7 +22,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:rust": "cd src-tauri && cargo test",
-    "verify": "npm run build && npm run test:rust && npm run check:rust",
+    "verify": "npm run build && npm test && npm run test:rust && npm run check:rust",
     "package:mac": "tauri build --bundles dmg",
     "package:win": "tauri build --bundles nsis",
     "preview": "vite preview --host 127.0.0.1 --port 1420",
