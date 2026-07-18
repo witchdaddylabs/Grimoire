@@ -19,7 +19,8 @@
     "build": "tsc && vite build",
     "check": "tsc --noEmit",
     "check:rust": "cd src-tauri && cargo check",
-    "test": "npm run test:rust",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:rust": "cd src-tauri && cargo test",
     "verify": "npm run build && npm run test:rust && npm run check:rust",
     "package:mac": "tauri build --bundles dmg",
@@ -37,11 +38,16 @@
   "devDependencies": {
     "@tailwindcss/vite": "4.3.3",
     "@tauri-apps/cli": "^2.11.4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "jsdom": "^29.1.1",
     "tailwindcss": "4.3.3",
     "typescript": "^6.0.3",
-    "vite": "8.1.5"
+    "vite": "8.1.5",
+    "vitest": "^4.1.10"
   }
 }
