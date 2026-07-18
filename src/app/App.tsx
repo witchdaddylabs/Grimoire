@@ -299,7 +299,7 @@ export function App() {
       ? (window.prompt("Type (chapter, scene, character, location, lore, note):", "note") ?? "note")
       : undefined;
     try {
-      const response = await createVaultNode(project.projectPath, nodeType, name.trim(), undefined, parentId, itemType?.trim() || "note");
+      const response = await createVaultNode(project.projectPath, nodeType, name.trim(), parentId, undefined, itemType?.trim() || "note");
       setVaultTree(response.tree);
       if (nodeType !== "item") setExpandedNodeIds(prev => new Set([...prev, response.id]));
       if (nodeType === "item") setActiveItemId(response.id);

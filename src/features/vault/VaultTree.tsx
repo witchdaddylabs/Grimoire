@@ -130,7 +130,7 @@ function WingBranch({ wing, activeItemId, expandedNodeIds, onArchiveItem, onCrea
 }
 
 export function VaultTree({ tree, activeItemId, expandedNodeIds, onArchiveItem, onCreateNode, onToggle, onSelectItem }: VaultTreeProps) {
-  if (tree.itemCount === 0) {
+  if (tree.itemCount === 0 && tree.wings.length === 0) {
     return (
       <div className="vault-empty">
         <strong>The Vault is quiet</strong>
