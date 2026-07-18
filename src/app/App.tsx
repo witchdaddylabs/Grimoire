@@ -21,6 +21,8 @@ import { useCoWriter } from "../features/cowriter/useCoWriter";
 import { CoWriterPanel } from "../features/cowriter/CoWriterPanel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SettingsPanel } from "../features/settings/SettingsPanel";
+import { VaultTree } from "../features/vault/VaultTree";
+import { providerLabels } from "./ai";
 
 // ── Types ──
 type TauriState = "checking" | "awake" | "browser";
@@ -103,7 +105,6 @@ export function App() {
   const [theme, setTheme] = useState<"dark" | "ivory">("dark");
   const [toast, setToast] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [ollamaUrl, setOllamaUrl] = useState("http://127.0.0.1:11434");
 
   const vaultFlatItems = useMemo(() => flattenVaultItems(vaultTree), [vaultTree]);
   const activeItem = useMemo(
@@ -268,6 +269,37 @@ export function App() {
       : undefined;
     try {
       const response = await createVaultNode(project.projectPath, nodeType, name.trim(), undefined, undefined, itemType?.trim() || "note");
+      setVaultTree(response.tree);
+      if (nodeType !== "item") setExpandedNodeIds(prev => new Set([...prev, response.id]));
+      if (nodeType === "item") setActiveItemId(response.id);
+      showToast(`Created ${nodeType}: ${name.trim()}`);
+    } catch (err) { showToast(describeError(err)); }
+  }, [project, tauriState, showToast]);
+
+  // Archive item (for VaultTree)
+  const handleArchiveItem = useCallback(async (itemId: string) => {
+    if (!project || tauriState !== "awake") return;
+    try {
+      const tree = await archiveVaultItem(project.projectPath, itemId);
+      setVaultTree(tree);
+      if (activeItem?.id === itemId) {
+        const items = flattenVaultItems(tree);
+        setActiveItemId(items[0]?.id ?? "");
+      }
+      showToast("Item archived");
+    } catch (err) { showToast(describeError(err)); }
+  }, [project, tauriState, activeItem, showToast]);
+
+  // Create node (for VaultTree — accepts parentId)
+  const handleCreateVaultNode = useCallback(async (nodeType: "wing" | "hall" | "room" | "drawer" | "item", parentId?: string) => {
+    if (!project || tauriState !== "awake") { showToast("Open a project first."); return; }
+    const name = window.prompt(`Name for new ${nodeType}:`);
+    if (!name?.trim()) return;
+    const itemType = nodeType === "item"
+      ? (window.prompt("Type (chapter, scene, character, location, lore, note):", "note") ?? "note")
+      : undefined;
+    try {
+      const response = await createVaultNode(project.projectPath, nodeType, name.trim(), undefined, parentId, itemType?.trim() || "note");
       setVaultTree(response.tree);
       if (nodeType !== "item") setExpandedNodeIds(prev => new Set([...prev, response.id]));
       if (nodeType === "item") setActiveItemId(response.id);
@@ -462,10 +494,12 @@ export function App() {
                 </div>
 
                 {/* Vault tree */}
-                <VaultTreeRead
+                <VaultTree
                   tree={vaultTree}
                   activeItemId={activeItem?.id ?? ""}
                   expandedNodeIds={expandedNodeIds}
+                  onArchiveItem={handleArchiveItem}
+                  onCreateNode={handleCreateVaultNode}
                   onToggle={toggleNode}
                   onSelectItem={setActiveItemId}
                 />
@@ -626,90 +660,18 @@ export function App() {
         projectName={project?.name ?? ""}
         projectPath={project?.projectPath ?? ""}
         onProjectNameChange={() => {}}
-        ollamaUrl={ollamaUrl}
-        onOllamaUrlChange={setOllamaUrl}
-        activeProvider="ollama"
-        onProviderChange={() => {}}
-        apiKey=""
-        onApiKeyChange={() => {}}
-        onApiKeySave={() => {}}
-        onApiKeyDelete={() => {}}
-        hasApiKey={false}
+        ollamaUrl={coWriter.baseUrlDraft ?? "http://127.0.0.1:11434"}
+        onOllamaUrlChange={coWriter.setBaseUrlDraft}
+        activeProvider={coWriter.activeProvider}
+        onProviderChange={(p) => { coWriter.onProviderSelection(p); }}
+        apiKey={coWriter.apiKeyDraft}
+        onApiKeyChange={coWriter.setApiKeyDraft}
+        onApiKeySave={() => { coWriter.onApiKeySave(new Event('submit') as any); }}
+        onApiKeyDelete={() => { coWriter.onApiKeyDelete(); }}
+        hasApiKey={coWriter.activeProviderSettings?.apiKeyPresent ?? false}
       />
     </main>
   );
 }
 
-// ── Simple Vault Tree (inline to avoid import complexity) ──
-function VaultTreeRead({ tree, activeItemId, expandedNodeIds, onToggle, onSelectItem }: {
-  tree: VaultTreeResponse;
-  activeItemId: string;
-  expandedNodeIds: Set<string>;
-  onToggle: (id: string) => void;
-  onSelectItem: (id: string) => void;
-}) {
-  if (!tree.wings.length) {
-    return <p style={{ fontSize: 12, color: "var(--parchment-muted)", padding: "8px 0" }}>No Vault items yet. Create a Wing above to start building your story's memory.</p>;
-  }
 
-  return (
-    <div className="vault-tree">
-      {tree.wings.map(wing => (
-        <details key={wing.id} open={expandedNodeIds.has(wing.id)}>
-          <summary onClick={e => { e.preventDefault(); onToggle(wing.id); }} className="vault-tree-node">
-            📁 {wing.name} <span style={{ color: "var(--parchment-muted)", fontSize: 11 }}>({tree.itemCount} items total)</span>
-          </summary>
-          <div style={{ paddingLeft: 14 }}>
-            {wing.halls.map((hall: { id: string; name: string; rooms: { id: string; name: string; drawers: { id: string; name: string; items: { id: string; title: string }[] }[] }[] }) => (
-              <details key={hall.id} open={expandedNodeIds.has(hall.id)}>
-                <summary onClick={e => { e.preventDefault(); onToggle(hall.id); }} className="vault-tree-node">
-                  📂 {hall.name}
-                </summary>
-                <div style={{ paddingLeft: 14 }}>
-                  {hall.rooms.map((room: { id: string; name: string; drawers: { id: string; name: string; items: { id: string; title: string }[] }[] }) => (
-                    <details key={room.id} open={expandedNodeIds.has(room.id)}>
-                      <summary onClick={e => { e.preventDefault(); onToggle(room.id); }} className="vault-tree-node">
-                        🗂️ {room.name}
-                      </summary>
-                      <div style={{ paddingLeft: 14 }}>
-                        {room.drawers.map((drawer: { id: string; name: string; items: { id: string; title: string }[] }) => (
-                          <details key={drawer.id} open={expandedNodeIds.has(drawer.id)}>
-                            <summary onClick={e => { e.preventDefault(); onToggle(drawer.id); }} className="vault-tree-node">
-                              📄 {drawer.name}
-                            </summary>
-                            <div style={{ paddingLeft: 14 }}>
-                              {drawer.items.map((item: { id: string; title: string }) => (
-                                <button
-                                  key={item.id}
-                                  type="button"
-                                  className="vault-tree-item"
-                                  onClick={() => onSelectItem(item.id)}
-                                  style={{
-                                    background: item.id === activeItemId ? "var(--accent-bronze-soft)" : "transparent",
-                                    fontWeight: item.id === activeItemId ? 600 : 400,
-                                  }}
-                                >
-                                  {item.title}
-                                </button>
-                              ))}
-                            </div>
-                          </details>
-                        ))}
-                        {room.drawers.length === 0 && (
-                          <p style={{ fontSize: 11, color: "var(--parchment-muted)", padding: "4px 0" }}>Empty room</p>
-                        )}
-                      </div>
-                    </details>
-                  ))}
-                </div>
-              </details>
-            ))}
-          </div>
-        </details>
-      ))}
-    </div>
-  );
-}
-
-// Re-export for use in CoWriterPanel
-import { providerLabels } from "./ai";
