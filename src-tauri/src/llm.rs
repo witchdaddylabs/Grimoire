@@ -1,4 +1,5 @@
 use crate::errors::CommandResult;
+use crate::helpers::timestamp;
 use crate::ai::{
     AiChatRequest, AiChatResponse, AiModelInfo, AiProviderKind, AiProviderModelsResponse,
     AiProviderSettings,
@@ -153,7 +154,7 @@ pub fn set_setting(connection: &Connection, key: &str, value: &str) -> CommandRe
             VALUES (?1, ?2, ?3)
             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
             "#,
-            params![key, value, super::timestamp()],
+            params![key, value, timestamp()],
         )
         .map_err(|error| format!("Could not write setting {key}: {error}"))?;
     Ok(())
@@ -573,7 +574,7 @@ pub fn seed_default_banned_words(connection: &Connection) -> CommandResult<()> {
         ("ward_default_delve", "delve", "warn"),
         ("ward_default_tapestry", "tapestry", "warn"),
     ];
-    let now = super::timestamp();
+    let now = timestamp();
     for (id, value, severity) in defaults {
         connection
             .execute(
