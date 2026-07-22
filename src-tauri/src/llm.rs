@@ -7,7 +7,7 @@ use crate::models::{
     BannedWord, WardScanHit, WardScanResponse,
 };
 use crate::settings::{
-    cloud_provider, get_active_provider, get_setting, provider_setting_key, provider_settings,
+    get_setting, provider_setting_key, provider_settings,
     set_setting,
 };
 use keyring::{Entry, Error as KeyringError};
@@ -15,20 +15,7 @@ use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::time::Duration;
 
-pub const CLOUD_DISCLOSURE_COPY: &str = r#"Cloud model disclosure
 
-You are selecting a cloud model provider. Grimoire will send the prompt, relevant Vault excerpts, and active Canvas context needed for your Co-Writer request to the selected provider.
-
-Your use of this model is subject to that provider's privacy policy, data processing terms, retention rules, and billing terms. Local-first mode remains available through Ollama, where supported by your machine.
-
-Do not use a cloud provider for private, confidential, regulated, or sensitive manuscript material unless you are comfortable with that provider receiving it under its terms."#;
-
-pub const PROVIDERS: [AiProviderKind; 4] = [
-    AiProviderKind::Ollama,
-    AiProviderKind::OpenAi,
-    AiProviderKind::OpenAiCompatible,
-    AiProviderKind::GoogleAiStudio,
-];
 
 pub fn list_ollama_models(connection: &Connection) -> CommandResult<AiProviderModelsResponse> {
     let base_url = "http://127.0.0.1:11434";
@@ -554,14 +541,7 @@ pub fn confidence_for_score(score: f64) -> String {
     }
 }
 
-pub fn aggregate_confidence(results: &[crate::models::SearchChunkResult]) -> String {
-    results
-        .first()
-        .map(|result| result.confidence.clone())
-        .unwrap_or_else(|| "none".to_string())
-}
 
-// -- Grounded Co-Writer chat orchestration --
 
 pub fn build_grounded_context(
     retrieval_items: &[crate::models::SearchChunkResult],
