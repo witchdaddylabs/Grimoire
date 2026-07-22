@@ -1,17 +1,14 @@
 use super::*;
 use crate::ai::{
     AiApiKeyRequest, AiChatRequest, AiChatResponse, AiModelInfo, AiProviderKind,
-    AiProviderModelsResponse, AiProviderSelectionRequest, AiProviderSettings,
-    AiProviderSettingsResponse, AiProviderSettingsSaveRequest, CloudDisclosureAcceptRequest,
-    CLOUD_DISCLOSURE_COPY, PROVIDERS,
+    AiProviderModelsResponse, AiProviderSelectionRequest, AiProviderSettingsResponse,
+    AiProviderSettingsSaveRequest, CloudDisclosureAcceptRequest, CLOUD_DISCLOSURE_COPY, PROVIDERS,
 };
 use crate::helpers::timestamp;
 use crate::llm;
 use crate::settings::{
-    cloud_provider, get_active_provider, get_setting, provider_setting_key, provider_settings,
-    set_setting,
+    cloud_provider, get_active_provider, provider_setting_key, provider_settings, set_setting,
 };
-use rusqlite::params;
 
 // ── Commands ──
 
