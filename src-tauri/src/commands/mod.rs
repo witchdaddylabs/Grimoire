@@ -30,16 +30,11 @@ pub fn default_projects_dir() -> CommandResult<PathBuf> {
 pub fn project_folder_name(name: &str) -> String {
     let cleaned: String = name
         .chars()
-        .filter_map(|character| {
-            if character.is_ascii_alphanumeric()
-                || character == ' '
-                || character == '-'
-                || character == '_'
-            {
-                Some(character)
-            } else {
-                None
-            }
+        .filter(|character| {
+            character.is_ascii_alphanumeric()
+                || *character == ' '
+                || *character == '-'
+                || *character == '_'
         })
         .collect();
 
@@ -125,7 +120,7 @@ pub fn initialise_database(metadata: &ProjectMetadata, seed_demo: bool) -> Comma
     crate::llm::seed_default_banned_words(&connection)?;
 
     if seed_demo {
-        self::schema::seed_vault_demo_data(&mut connection)?;
+        self::schema::seed_vault_demo_data(&connection)?;
     }
 
     Ok(())

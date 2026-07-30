@@ -163,11 +163,7 @@ pub fn manuscript_export(request: ManuscriptExportRequest) -> CommandResult<Expo
         }
     }
 
-    let ext = if request.format.as_deref() == Some("markdown") {
-        "md"
-    } else {
-        "md"
-    };
+    let ext = "md";
     let file_path = export_dir.join(format!(
         "grimoire-manuscript-{}.{}",
         sanitize_filename(&request.project_name),
