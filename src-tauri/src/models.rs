@@ -386,6 +386,9 @@ pub struct ExportResponse {
 pub struct ManuscriptExportRequest {
     pub project_path: String,
     pub project_name: String,
+    /// Reserved for future export formats; only "markdown" is supported today.
+    /// Kept on the wire contract because the frontend sends it.
+    #[allow(dead_code)]
     pub format: Option<String>,
 }
 

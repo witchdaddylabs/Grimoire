@@ -1,5 +1,5 @@
 use crate::errors::CommandResult;
-use crate::helpers::{timestamp, timestamp_nanos};
+use crate::helpers::timestamp;
 use crate::models::{
     BannedWord, SearchChunkResult, VaultDrawerNode, VaultHallNode, VaultItemDetail, VaultItemNode,
     VaultRoomNode, VaultTreeResponse, VaultWingNode, WardScanResponse,
@@ -398,26 +398,6 @@ pub fn sync_item_chunks(
     Ok(chunks.len())
 }
 
-pub fn normalize_text(text: &str) -> String {
-    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-    let mut blank_lines = 0;
-    let mut lines = Vec::new();
-    for line in normalized.lines() {
-        let trimmed_end = line.trim_end();
-        if trimmed_end.trim().is_empty() {
-            blank_lines += 1;
-            if blank_lines <= 2 {
-                lines.push(String::new());
-            }
-        } else {
-            blank_lines = 0;
-            lines.push(trimmed_end.to_string());
-        }
-    }
-
-    lines.join("\n").trim().to_string()
-}
-
 pub fn read_banned_words(connection: &Connection) -> CommandResult<Vec<BannedWord>> {
     let mut statement = connection
         .prepare("SELECT id, value, severity, is_default FROM banned_words ORDER BY is_default DESC, value")
@@ -438,38 +418,6 @@ pub fn read_banned_words(connection: &Connection) -> CommandResult<Vec<BannedWor
         words.push(word.map_err(|error| format!("Could not read ward phrase: {error}"))?);
     }
     Ok(words)
-}
-
-pub fn add_banned_word(
-    connection: &Connection,
-    value: &str,
-    severity: &str,
-) -> CommandResult<Vec<BannedWord>> {
-    let now = timestamp();
-    connection
-        .execute(
-            r#"
-            INSERT INTO banned_words (id, value, severity, is_default, created_at, updated_at)
-            VALUES (?1, ?2, ?3, 0, ?4, ?4)
-            ON CONFLICT(value) DO UPDATE SET severity = excluded.severity, updated_at = excluded.updated_at
-            "#,
-            params![format!("ward_{}", timestamp_nanos()), value, severity, now],
-        )
-        .map_err(|error| format!("Could not save ward phrase: {error}"))?;
-
-    read_banned_words(connection)
-}
-
-pub fn remove_banned_word(connection: &Connection, id: &str) -> CommandResult<Vec<BannedWord>> {
-    connection
-        .execute("DELETE FROM banned_words WHERE id = ?1", params![id])
-        .map_err(|error| format!("Could not remove ward phrase: {error}"))?;
-    read_banned_words(connection)
-}
-
-// -- Re-export of llms helpers used by tests / wards --
-pub fn scan_banned_words(words: &[BannedWord], text: &str) -> crate::models::WardScanResponse {
-    super::llm::scan_wards(words, text)
 }
 
 // -- Internal helpers for chat_with_vault orchestration --
@@ -661,12 +609,6 @@ mod tests {
     }
 
     #[test]
-    fn normalize_text_basic() {
-        assert_eq!(normalize_text("  hello  "), "hello");
-        assert_eq!(normalize_text("line1\n\n\n\nline2"), "line1\n\n\nline2");
-    }
-
-    #[test]
     fn chunk_text_respects_max_words() {
         let text = "one two three four five six seven eight nine ten";
         let chunks = chunk_text(text, 3);
@@ -804,7 +746,7 @@ mod tests {
             },
         ];
 
-        let result = scan_banned_words(&words, "The hero will slay the dragon");
+        let result = crate::llm::scan_wards(&words, "The hero will slay the dragon");
         assert_eq!(result.hits.len(), 1);
         assert_eq!(result.hits[0].value, "slay");
         assert_eq!(result.hits[0].severity, "block");
@@ -819,7 +761,7 @@ mod tests {
             is_default: true,
         }];
 
-        let result = scan_banned_words(&words, "The hero walked through the garden");
+        let result = crate::llm::scan_wards(&words, "The hero walked through the garden");
         assert_eq!(result.hits.len(), 0);
     }
 

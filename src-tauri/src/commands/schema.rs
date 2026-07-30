@@ -403,7 +403,7 @@ mod tests {
             project_path: "/tmp/test.grimoire".to_string(),
             database_path: ":memory:".to_string(),
             app_version: "1.0.0".to_string(),
-            schema_version: SCHEMA_VERSION as i64,
+            schema_version: SCHEMA_VERSION,
             created_at: String::new(),
             updated_at: String::new(),
         };
