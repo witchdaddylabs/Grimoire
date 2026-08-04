@@ -21,7 +21,7 @@ pub fn project_create(request: ProjectCreateRequest) -> CommandResult<ProjectMet
     })?;
 
     let metadata = super::load_or_create_metadata(&project_dir, &request.name)?;
-    super::initialise_database(&metadata, request.seed_demo_data.unwrap_or(false))?;
+    let metadata = super::initialise_database(&metadata, request.seed_demo_data.unwrap_or(false))?;
     Ok(metadata)
 }
 
@@ -29,7 +29,7 @@ pub fn project_create(request: ProjectCreateRequest) -> CommandResult<ProjectMet
 pub fn project_open(project_path: String) -> CommandResult<ProjectMetadata> {
     let project_dir = super::validate_project_dir(PathBuf::from(project_path))?;
     let metadata = super::read_metadata(&project_dir)?;
-    super::initialise_database(&metadata, false)?;
+    let metadata = super::initialise_database(&metadata, false)?;
     Ok(metadata)
 }
 

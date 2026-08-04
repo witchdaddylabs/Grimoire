@@ -5,7 +5,7 @@ use crate::db::read_vault_tree;
 pub fn db_init(project_path: String) -> CommandResult<ProjectMetadata> {
     let project_dir = super::validate_project_dir(PathBuf::from(project_path))?;
     let metadata = super::read_metadata(&project_dir)?;
-    super::initialise_database(&metadata, false)?;
+    let metadata = super::initialise_database(&metadata, false)?;
     Ok(metadata)
 }
 

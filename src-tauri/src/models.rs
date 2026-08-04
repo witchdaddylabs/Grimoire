@@ -400,6 +400,215 @@ pub struct ItemReorderRequest {
     pub direction: Option<String>,
 }
 
+// ── Story Plan (Schema v3 — Fabula-style structure layer) ──
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryPlan {
+    pub id: String,
+    pub project_name: String,
+    pub logline: Option<String>,
+    pub synopsis: Option<String>,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryScene {
+    pub id: String,
+    pub plan_id: String,
+    pub title: String,
+    pub setting: Option<String>,
+    pub summary: Option<String>,
+    pub linked_item_id: Option<String>,
+    pub sort_order: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryBeat {
+    pub id: String,
+    pub scene_id: String,
+    pub beat_type: String,
+    pub content: String,
+    /// Character names; stored in SQLite as a JSON array text column.
+    pub characters: Option<Vec<String>>,
+    pub locked: bool,
+    pub sort_order: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryCandidate {
+    pub id: String,
+    pub target_kind: String,
+    pub target_id: String,
+    pub provider: String,
+    pub model: String,
+    pub prompt_summary: Option<String>,
+    pub candidate_index: i64,
+    pub content: String,
+    pub status: String,
+    pub created_at: String,
+}
+
+/// Full tree for a single plan: plan → scenes → beats.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorySceneWithBeats {
+    #[serde(flatten)]
+    pub scene: StoryScene,
+    pub beats: Vec<StoryBeat>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryPlanDetail {
+    #[serde(flatten)]
+    pub plan: StoryPlan,
+    pub scenes: Vec<StorySceneWithBeats>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryPlanListResponse {
+    pub plans: Vec<StoryPlan>,
+}
+
+// Story Plan requests
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryPlanCreateRequest {
+    pub project_path: String,
+    pub project_name: String,
+    pub logline: Option<String>,
+    pub synopsis: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryPlanUpdateRequest {
+    pub project_path: String,
+    pub plan_id: String,
+    pub project_name: Option<String>,
+    pub logline: Option<String>,
+    pub synopsis: Option<String>,
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorySceneCreateRequest {
+    pub project_path: String,
+    pub plan_id: String,
+    pub title: String,
+    pub setting: Option<String>,
+    pub summary: Option<String>,
+    pub linked_item_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorySceneUpdateRequest {
+    pub project_path: String,
+    pub scene_id: String,
+    pub title: Option<String>,
+    pub setting: Option<String>,
+    pub summary: Option<String>,
+    pub linked_item_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryBeatCreateRequest {
+    pub project_path: String,
+    pub scene_id: String,
+    pub beat_type: Option<String>,
+    pub content: String,
+    pub characters: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryBeatUpdateRequest {
+    pub project_path: String,
+    pub beat_id: String,
+    pub beat_type: Option<String>,
+    pub content: Option<String>,
+    pub characters: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryReorderRequest {
+    pub project_path: String,
+    /// "scene" or "beat"
+    pub kind: String,
+    pub id: String,
+    /// "up" or "down"
+    pub direction: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryBeatLockRequest {
+    pub project_path: String,
+    pub beat_id: String,
+    pub locked: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryPlanDeleteRequest {
+    pub project_path: String,
+    pub plan_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorySceneDeleteRequest {
+    pub project_path: String,
+    pub scene_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryBeatDeleteRequest {
+    pub project_path: String,
+    pub beat_id: String,
+}
+
+// Candidate requests / responses
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryCandidateStoreRequest {
+    pub project_path: String,
+    pub target_kind: String,
+    pub target_id: String,
+    pub provider: String,
+    pub model: String,
+    pub prompt_summary: Option<String>,
+    pub candidate_index: i64,
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryCandidateResolveRequest {
+    pub project_path: String,
+    pub candidate_id: String,
+    /// "accepted" or "rejected"
+    pub resolution: String,
+}
+
 // Note: AI provider types (AiProviderKind, AiProviderSettings, etc.) are in ai/mod.rs
 // and imported at the top of main.rs. Do not duplicate them here.
 // The OllamaModel From<AiModelInfo> impl is also in ai/mod.rs to avoid circular deps.

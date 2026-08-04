@@ -86,7 +86,7 @@ export function SettingsPanel({
         <div className="settings-section">
           <h3><Globe size={14} /> AI Provider</h3>
           <div className="provider-grid">
-            {(["ollama", "openAi", "openAiCompatible", "googleAiStudio"] as AiProviderKind[]).map((p) => (
+            {(["ollama", "openAi", "openAiCompatible", "anthropic", "googleAiStudio"] as AiProviderKind[]).map((p) => (
               <button
                 key={p}
                 className={activeProvider === p ? "provider-button active" : "provider-button"}

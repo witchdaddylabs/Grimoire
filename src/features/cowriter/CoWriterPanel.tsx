@@ -14,7 +14,7 @@ import { PanelHeader } from "../../components/PanelHeader";
 import { CollapsedRail } from "../../components/CollapsedRail";
 import { ToolAccordion } from "../../components/ToolAccordion";
 
-const AI_PROVIDERS: AiProviderKind[] = ["ollama", "openAi", "openAiCompatible", "googleAiStudio"];
+const AI_PROVIDERS: AiProviderKind[] = ["ollama", "openAi", "openAiCompatible", "anthropic", "googleAiStudio"];
 
 interface CoWriterPanelProps {
   rightCollapsed: boolean;
