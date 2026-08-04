@@ -109,7 +109,7 @@ pub fn write_metadata(metadata: &ProjectMetadata) -> CommandResult<()> {
         .map_err(|error| format!("Could not write project metadata: {error}"))
 }
 
-pub fn initialise_database(metadata: &ProjectMetadata, seed_demo: bool) -> CommandResult<()> {
+pub fn initialise_database(metadata: &ProjectMetadata, seed_demo: bool) -> CommandResult<ProjectMetadata> {
     let mut connection = Connection::open(&metadata.database_path)
         .map_err(|error| format!("Could not open SQLite database: {error}"))?;
     connection
@@ -117,14 +117,25 @@ pub fn initialise_database(metadata: &ProjectMetadata, seed_demo: bool) -> Comma
         .map_err(|error| format!("Could not enable SQLite foreign keys: {error}"))?;
 
     self::schema::run_migrations(&mut connection)?;
-    self::schema::upsert_project_metadata(&connection, metadata)?;
+
+    // Projects written by older builds can carry a stale schema version in
+    // metadata.json (Codex catch, 2026-08). Migrations have just run, so bump
+    // the metadata to match reality before it is persisted or returned.
+    let mut metadata = metadata.clone();
+    if metadata.schema_version < self::schema::SCHEMA_VERSION {
+        metadata.schema_version = self::schema::SCHEMA_VERSION;
+        metadata.updated_at = timestamp();
+        write_metadata(&metadata)?;
+    }
+
+    self::schema::upsert_project_metadata(&connection, &metadata)?;
     crate::llm::seed_default_banned_words(&connection)?;
 
     if seed_demo {
         self::schema::seed_vault_demo_data(&connection)?;
     }
 
-    Ok(())
+    Ok(metadata)
 }
 
 pub fn open_project_database(project_path: &str) -> CommandResult<Connection> {
@@ -137,4 +148,41 @@ pub fn open_project_database(project_path: &str) -> CommandResult<Connection> {
         .execute_batch("PRAGMA foreign_keys = ON;")
         .map_err(|error| format!("Could not enable SQLite foreign keys: {error}"))?;
     Ok(connection)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test (Codex catch, 2026-08): a v2 project opened after the
+    /// v3 migration must end up reporting schema version 3 in metadata.json,
+    /// not the stale value it was written with.
+    #[test]
+    fn initialise_database_bumps_stale_metadata_version() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "grimoire_schema_bump_test_{}",
+            crate::helpers::timestamp_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let database_path = temp_dir.join("grimoire.sqlite");
+        let metadata = ProjectMetadata {
+            name: "Legacy Project".to_string(),
+            app_version: "0.2.0".to_string(),
+            schema_version: 2,
+            project_path: temp_dir.to_string_lossy().to_string(),
+            database_path: database_path.to_string_lossy().to_string(),
+            created_at: "1".to_string(),
+            updated_at: "1".to_string(),
+        };
+        write_metadata(&metadata).unwrap();
+
+        let bumped = initialise_database(&metadata, false).unwrap();
+        assert_eq!(bumped.schema_version, self::schema::SCHEMA_VERSION);
+
+        let reloaded = read_metadata(&temp_dir).unwrap();
+        assert_eq!(reloaded.schema_version, self::schema::SCHEMA_VERSION);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }

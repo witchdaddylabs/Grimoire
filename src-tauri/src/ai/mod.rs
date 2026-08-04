@@ -60,10 +60,11 @@ impl AiProviderKind {
     }
 }
 
-pub const PROVIDERS: [AiProviderKind; 4] = [
+pub const PROVIDERS: [AiProviderKind; 5] = [
     AiProviderKind::Ollama,
     AiProviderKind::OpenAi,
     AiProviderKind::OpenAiCompatible,
+    AiProviderKind::Anthropic,
     AiProviderKind::GoogleAiStudio,
 ];
 
@@ -164,5 +165,23 @@ mod tests {
     #[test]
     fn disclosure_mentions_privacy_policy() {
         assert!(CLOUD_DISCLOSURE_COPY.contains("privacy policy"));
+    }
+
+    #[test]
+    fn providers_roster_includes_every_provider_kind() {
+        // Regression guard: Anthropic was added to the enum but forgotten in
+        // this roster (Codex catch, 2026-08). ai_get_provider_settings resets
+        // any provider missing here back to Ollama, silently breaking it.
+        let every_kind = [
+            AiProviderKind::Ollama,
+            AiProviderKind::OpenAi,
+            AiProviderKind::OpenAiCompatible,
+            AiProviderKind::Anthropic,
+            AiProviderKind::GoogleAiStudio,
+        ];
+        assert_eq!(PROVIDERS.len(), every_kind.len());
+        for kind in every_kind {
+            assert!(PROVIDERS.contains(&kind), "missing provider: {:?}", kind);
+        }
     }
 }
