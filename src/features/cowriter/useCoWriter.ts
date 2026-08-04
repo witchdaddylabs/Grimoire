@@ -11,7 +11,7 @@ import {
 } from "../../app/ai";
 import { listWards, addWard, removeWard } from "../../app/vault";
 
-const AI_PROVIDERS: AiProviderKind[] = ["ollama", "openAi", "openAiCompatible", "googleAiStudio"];
+const AI_PROVIDERS: AiProviderKind[] = ["ollama", "openAi", "openAiCompatible", "anthropic", "googleAiStudio"];
 
 export function useCoWriter(
   projectPath: string | null,

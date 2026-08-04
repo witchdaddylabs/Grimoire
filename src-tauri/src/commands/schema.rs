@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 
 use crate::errors::CommandResult;
 
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 pub const INITIAL_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS project_metadata (
@@ -142,6 +142,61 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 "#;
 
+/// Schema v3 — Story Plan layer (Fabula-style structure that stays aligned).
+/// Applied idempotently after INITIAL_SCHEMA; safe to re-run on v2 projects.
+pub const STORY_PLAN_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS story_plans (
+  id TEXT PRIMARY KEY,
+  project_name TEXT NOT NULL,
+  logline TEXT,
+  synopsis TEXT,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','outline','drafting','revision','done')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS story_scenes (
+  id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL REFERENCES story_plans(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  setting TEXT,
+  summary TEXT,
+  linked_item_id TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS story_beats (
+  id TEXT PRIMARY KEY,
+  scene_id TEXT NOT NULL REFERENCES story_scenes(id) ON DELETE CASCADE,
+  beat_type TEXT NOT NULL CHECK (beat_type IN ('action','dialogue','revelation','conflict','transition','other')),
+  content TEXT NOT NULL,
+  characters TEXT,
+  locked INTEGER NOT NULL DEFAULT 0,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS story_candidates (
+  id TEXT PRIMARY KEY,
+  target_kind TEXT NOT NULL CHECK (target_kind IN ('plan','scene','beat','script')),
+  target_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  prompt_summary TEXT,
+  candidate_index INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','rejected')),
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_scenes_plan ON story_scenes(plan_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_beats_scene ON story_beats(scene_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_candidates_target ON story_candidates(target_kind, target_id);
+"#;
+
 pub fn seed_vault_demo_data(connection: &Connection) -> CommandResult<()> {
     let now = timestamp();
 
@@ -212,9 +267,32 @@ pub fn run_migrations(connection: &mut Connection) -> CommandResult<()> {
         connection
             .execute(
                 "INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?1, ?2, ?3)",
-                params![SCHEMA_VERSION, "archive_items", timestamp()],
+                params![2, "archive_items", timestamp()],
             )
             .map_err(|error| format!("Could not record schema migration: {error}"))?;
+    }
+
+    // Schema v3 — Story Plan tables. Idempotent (IF NOT EXISTS) so it is safe
+    // on brand-new projects and on v2 projects being upgraded alike.
+    let story_plan_applied: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM schema_migrations WHERE version = ?1",
+            params![SCHEMA_VERSION],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("Could not read migration state: {error}"))?;
+
+    connection
+        .execute_batch(STORY_PLAN_SCHEMA)
+        .map_err(|error| format!("Could not apply story plan schema: {error}"))?;
+
+    if story_plan_applied == 0 {
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?1, ?2, ?3)",
+                params![SCHEMA_VERSION, "story_plan", timestamp()],
+            )
+            .map_err(|error| format!("Could not record story plan migration: {error}"))?;
     }
 
     Ok(())
@@ -329,7 +407,16 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(version, 2);
+
+        let story_plan_version: i64 = conn
+            .query_row(
+                "SELECT version FROM schema_migrations WHERE name = 'story_plan'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(story_plan_version, SCHEMA_VERSION);
     }
 
     #[test]
@@ -338,10 +425,11 @@ mod tests {
         run_migrations(&mut conn).unwrap();
         run_migrations(&mut conn).unwrap();
 
+        // One row per migration (archive_items + story_plan), never duplicates.
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 1);
+        assert_eq!(count, 2);
     }
 
     #[test]

@@ -5,6 +5,7 @@ pub mod ollama;
 pub mod project;
 pub mod schema;
 pub mod search;
+pub mod storyplan;
 pub mod vault;
 pub mod wards;
 
