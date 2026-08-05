@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   BookOpenText, ChevronLeft, ChevronRight, Feather,
   Loader2, Moon, SunMedium, Plus, Archive, FileText,
-  AlertTriangle, X, Search, Settings, Download,
+  AlertTriangle, X, Search, Settings, Download, ScrollText,
 } from "lucide-react";
 import {
   createProject, createDemoProject, openProject,
@@ -22,12 +22,14 @@ import { CoWriterPanel } from "../features/cowriter/CoWriterPanel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SettingsPanel } from "../features/settings/SettingsPanel";
 import { VaultTree } from "../features/vault/VaultTree";
+import { StoryPlanPanel } from "../features/storyplan/StoryPlanPanel";
 import { providerLabels } from "./ai";
 
 // ── Types ──
 type TauriState = "checking" | "awake" | "browser";
 type SaveState = "idle" | "editing" | "saving" | "saved" | "failed" | "preview";
 type AppView = "picker" | "workspace";
+type LeftTab = "vault" | "plan";
 
 // ── Helpers ──
 function countWords(text: string) {
@@ -101,6 +103,7 @@ export function App() {
 
   // UI prefs
   const [leftOpen, setLeftOpen] = useState(true);
+  const [leftTab, setLeftTab] = useState<LeftTab>("vault");
   const [focusMode, setFocusMode] = useState(false);
   const [theme, setTheme] = useState<"dark" | "ivory">("dark");
   const [toast, setToast] = useState<string | null>(null);
@@ -466,48 +469,84 @@ export function App() {
       {/* Workspace */}
       {view === "workspace" && (
         <section className="workspace">
-          {/* Left: Vault panel (collapsible) */}
+          {/* Left: Vault / Plan panel (collapsible, tabbed) */}
           {leftOpen ? (
             <div className="vault-panel panel">
               <div className="panel-header">
                 <div className="panel-heading">
-                  <div className="panel-icon"><BookOpenText size={17} /></div>
+                  <div className="panel-icon">
+                    {leftTab === "vault" ? <BookOpenText size={17} /> : <ScrollText size={17} />}
+                  </div>
                   <div style={{ minWidth: 0 }}>
-                    <h3 style={{ margin: 0, fontSize: 14 }}>The Vault</h3>
+                    <h3 style={{ margin: 0, fontSize: 14 }}>{leftTab === "vault" ? "The Vault" : "Story Plan"}</h3>
                     <p style={{ margin: 0, fontSize: 11, color: "var(--parchment-muted)" }}>
-                      {project ? `${vaultFlatItems.length} items` : "Demo"}
+                      {leftTab === "vault"
+                        ? (project ? `${vaultFlatItems.length} items` : "Demo")
+                        : "Structure that stays aligned"}
                     </p>
                   </div>
                 </div>
-                <button className="icon-button panel-collapse-button" type="button" aria-label="Collapse Vault" onClick={() => setLeftOpen(false)}>
+                <button className="icon-button panel-collapse-button" type="button" aria-label="Collapse panel" onClick={() => setLeftOpen(false)}>
                   <ChevronLeft size={16} />
                 </button>
               </div>
-              <div className="panel-scroll" style={{ padding: "8px 12px" }}>
-                {/* Create buttons */}
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
-                  {(["wing", "hall", "room", "drawer", "item"] as const).map(t => (
-                    <button key={t} className="text-button" type="button" onClick={() => handleCreateNode(t)}>
-                      + {t.charAt(0).toUpperCase() + t.slice(1)}
-                    </button>
-                  ))}
-                </div>
 
-                {/* Vault tree */}
-                <VaultTree
-                  tree={vaultTree}
-                  activeItemId={activeItem?.id ?? ""}
-                  expandedNodeIds={expandedNodeIds}
-                  onArchiveItem={handleArchiveItem}
-                  onCreateNode={handleCreateVaultNode}
-                  onToggle={toggleNode}
-                  onSelectItem={setActiveItemId}
-                />
+              {/* Left rail tabs: Vault | Plan */}
+              <div className="left-tabs" role="tablist" aria-label="Left panel">
+                <button
+                  role="tab" aria-selected={leftTab === "vault"}
+                  className={`left-tab ${leftTab === "vault" ? "active" : ""}`}
+                  type="button" onClick={() => setLeftTab("vault")}
+                >
+                  <BookOpenText size={13} /> Vault
+                </button>
+                <button
+                  role="tab" aria-selected={leftTab === "plan"}
+                  className={`left-tab ${leftTab === "plan" ? "active" : ""}`}
+                  type="button" onClick={() => setLeftTab("plan")}
+                >
+                  <ScrollText size={13} /> Plan
+                </button>
               </div>
+
+              {leftTab === "vault" ? (
+                <div className="panel-scroll" style={{ padding: "8px 12px" }}>
+                  {/* Create buttons */}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+                    {(["wing", "hall", "room", "drawer", "item"] as const).map(t => (
+                      <button key={t} className="text-button" type="button" onClick={() => handleCreateNode(t)}>
+                        + {t.charAt(0).toUpperCase() + t.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Vault tree */}
+                  <VaultTree
+                    tree={vaultTree}
+                    activeItemId={activeItem?.id ?? ""}
+                    expandedNodeIds={expandedNodeIds}
+                    onArchiveItem={handleArchiveItem}
+                    onCreateNode={handleCreateVaultNode}
+                    onToggle={toggleNode}
+                    onSelectItem={setActiveItemId}
+                  />
+                </div>
+              ) : (
+                project && tauriState === "awake" ? (
+                  <StoryPlanPanel
+                    projectPath={project.projectPath}
+                    vaultItems={vaultFlatItems}
+                    showToast={showToast}
+                    onOpenLinkedItem={(itemId) => { setActiveItemId(itemId); setLeftTab("vault"); }}
+                  />
+                ) : (
+                  <div className="storyplan-empty"><span>Open a project to use Story Plans.</span></div>
+                )
+              )}
             </div>
           ) : (
-            <button className="collapsed-rail left" type="button" onClick={() => setLeftOpen(true)} title="Open Vault">
-              <BookOpenText size={18} />
+            <button className="collapsed-rail left" type="button" onClick={() => setLeftOpen(true)} title="Open panel">
+              {leftTab === "vault" ? <BookOpenText size={18} /> : <ScrollText size={18} />}
               <ChevronRight size={14} />
             </button>
           )}
