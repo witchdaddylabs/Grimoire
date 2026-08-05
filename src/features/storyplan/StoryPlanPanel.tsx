@@ -152,6 +152,7 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
   }, [busy, showToast]);
 
   const handleCreatePlan = useCallback(async () => {
+    if (busy) return;
     const name = window.prompt("Name this story plan:");
     if (!name?.trim()) return;
     setBusy(true);
@@ -166,10 +167,10 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
     } finally {
       setBusy(false);
     }
-  }, [projectPath, refreshPlans, showToast]);
+  }, [busy, projectPath, refreshPlans, showToast]);
 
   const handleDeletePlan = useCallback(async () => {
-    if (!detail) return;
+    if (!detail || busy) return;
     if (!window.confirm(`Delete the story plan "${detail.projectName}"? Its scenes and beats go with it.`)) return;
     setBusy(true);
     try {
@@ -183,7 +184,7 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
     } finally {
       setBusy(false);
     }
-  }, [detail, projectPath, showToast]);
+  }, [busy, detail, projectPath, showToast]);
 
   const handleSavePlan = useCallback(() => {
     if (!detail || !planDraft.name.trim()) { showToast("The story plan needs a name."); return; }
@@ -196,7 +197,7 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
   }, [detail, planDraft, projectPath, run, showToast]);
 
   const handleCreateScene = useCallback(async () => {
-    if (!detail) return;
+    if (!detail || busy) return; // busy guard (Codex catch: this path bypasses run())
     const title = window.prompt("Title for the new scene:");
     if (!title?.trim()) return;
     setBusy(true);
@@ -213,7 +214,7 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
     } finally {
       setBusy(false);
     }
-  }, [detail, projectPath, showToast]);
+  }, [busy, detail, projectPath, showToast]);
 
   const handleDeleteScene = useCallback((sceneId: string, title: string) => {
     if (!window.confirm(`Delete scene "${title}" and its beats?`)) return;
