@@ -152,6 +152,7 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
   }, [busy, showToast]);
 
   const handleCreatePlan = useCallback(async () => {
+    if (busy) return;
     const name = window.prompt("Name this story plan:");
     if (!name?.trim()) return;
     setBusy(true);
@@ -166,10 +167,10 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
     } finally {
       setBusy(false);
     }
-  }, [projectPath, refreshPlans, showToast]);
+  }, [busy, projectPath, refreshPlans, showToast]);
 
   const handleDeletePlan = useCallback(async () => {
-    if (!detail) return;
+    if (!detail || busy) return;
     if (!window.confirm(`Delete the story plan "${detail.projectName}"? Its scenes and beats go with it.`)) return;
     setBusy(true);
     try {
@@ -183,7 +184,7 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
     } finally {
       setBusy(false);
     }
-  }, [detail, projectPath, showToast]);
+  }, [busy, detail, projectPath, showToast]);
 
   const handleSavePlan = useCallback(() => {
     if (!detail || !planDraft.name.trim()) { showToast("The story plan needs a name."); return; }
@@ -196,17 +197,24 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
   }, [detail, planDraft, projectPath, run, showToast]);
 
   const handleCreateScene = useCallback(async () => {
-    if (!detail) return;
+    if (!detail || busy) return; // busy guard (Codex catch: this path bypasses run())
     const title = window.prompt("Title for the new scene:");
     if (!title?.trim()) return;
-    await run(() => createStoryScene(projectPath, detail.id, title.trim()), "Scene added.");
-    // Expand the freshly created scene (last in sort order)
-    setExpandedSceneIds((prev) => {
-      const next = new Set(prev);
-      if (detail.scenes.length > 0) next.add(detail.scenes[detail.scenes.length - 1].id);
-      return next;
-    });
-  }, [detail, projectPath, run]);
+    setBusy(true);
+    try {
+      const updated = await createStoryScene(projectPath, detail.id, title.trim());
+      setDetail(updated);
+      // Expand the freshly created scene — read it from the RETURNED tree,
+      // not the stale `detail` closure (self-review catch, post-merge).
+      const last = updated.scenes[updated.scenes.length - 1];
+      if (last) setExpandedSceneIds((prev) => new Set(prev).add(last.id));
+      showToast("Scene added.");
+    } catch (err) {
+      showToast(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, detail, projectPath, showToast]);
 
   const handleDeleteScene = useCallback((sceneId: string, title: string) => {
     if (!window.confirm(`Delete scene "${title}" and its beats?`)) return;
