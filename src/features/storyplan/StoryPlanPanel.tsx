@@ -199,14 +199,21 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
     if (!detail) return;
     const title = window.prompt("Title for the new scene:");
     if (!title?.trim()) return;
-    await run(() => createStoryScene(projectPath, detail.id, title.trim()), "Scene added.");
-    // Expand the freshly created scene (last in sort order)
-    setExpandedSceneIds((prev) => {
-      const next = new Set(prev);
-      if (detail.scenes.length > 0) next.add(detail.scenes[detail.scenes.length - 1].id);
-      return next;
-    });
-  }, [detail, projectPath, run]);
+    setBusy(true);
+    try {
+      const updated = await createStoryScene(projectPath, detail.id, title.trim());
+      setDetail(updated);
+      // Expand the freshly created scene — read it from the RETURNED tree,
+      // not the stale `detail` closure (self-review catch, post-merge).
+      const last = updated.scenes[updated.scenes.length - 1];
+      if (last) setExpandedSceneIds((prev) => new Set(prev).add(last.id));
+      showToast("Scene added.");
+    } catch (err) {
+      showToast(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [detail, projectPath, showToast]);
 
   const handleDeleteScene = useCallback((sceneId: string, title: string) => {
     if (!window.confirm(`Delete scene "${title}" and its beats?`)) return;
