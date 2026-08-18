@@ -46,6 +46,7 @@ interface StoryPlanPanelProps {
   providerSettings: AiProviderSettings | null;
   providerModels: AiProviderModelsResponse | null;
   onProviderChange: (provider: AiProviderKind) => void;
+  onRefreshModels: () => void;
 }
 
 function charactersTextOf(beat: StoryBeat): string {
@@ -79,6 +80,7 @@ export function StoryPlanPanel({
   providerSettings,
   providerModels,
   onProviderChange,
+  onRefreshModels,
 }: StoryPlanPanelProps) {
   const [plans, setPlans] = useState<StoryPlan[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState("");
@@ -418,6 +420,7 @@ export function StoryPlanPanel({
                   providerSettings={providerSettings}
                   providerModels={providerModels}
                   onProviderChange={onProviderChange}
+                  onRefreshModels={onRefreshModels}
                   showToast={showToast}
                   onGenerationDone={bumpRefresh}
                 />
@@ -583,6 +586,7 @@ export function StoryPlanPanel({
                       providerSettings={providerSettings}
                       providerModels={providerModels}
                       onProviderChange={onProviderChange}
+                      onRefreshModels={onRefreshModels}
                       showToast={showToast}
                       onGenerationDone={bumpRefresh}
                     />

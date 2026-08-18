@@ -347,6 +347,7 @@ export function useCoWriter(
     onDiscardAnswer: handleDiscardAnswer,
     onRewriteClean: handleRewriteClean,
     onWardAdd: handleWardAdd,
+    onRefreshProviderModels: handleProviderTest,
     onWardRemove: handleWardRemove,
     onSelectItem,
     onExpandRight: () => setRightCollapsed(false),

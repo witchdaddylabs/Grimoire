@@ -543,6 +543,7 @@ export function App() {
                     providerSettings={coWriter.activeProviderSettings}
                     providerModels={coWriter.providerModels}
                     onProviderChange={coWriter.onProviderSelection}
+                    onRefreshModels={coWriter.onRefreshProviderModels}
                   />
                 ) : (
                   <div className="storyplan-empty"><span>Open a project to use Story Plans.</span></div>

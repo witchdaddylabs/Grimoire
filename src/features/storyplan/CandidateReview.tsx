@@ -43,25 +43,6 @@ function wardIcon(tone: WardTone) {
   return <ShieldAlert size={11} aria-hidden="true" />;
 }
 
-function extractWardHits(content: string): WardScanHit[] {
-  const marker = "WARD SCAN:";
-  const idx = content.lastIndexOf(marker);
-  if (idx === -1) return [];
-  const json = content.slice(idx + marker.length).trim();
-  try {
-    return JSON.parse(json) as WardScanHit[];
-  } catch {
-    return [];
-  }
-}
-
-function stripWardTail(content: string): string {
-  const marker = "WARD SCAN:";
-  const idx = content.lastIndexOf(marker);
-  if (idx === -1) return content;
-  return content.slice(0, idx).trim();
-}
-
 function severityClass(severity: string): string {
   return severity === "block" ? "ward-block" : "ward-warn";
 }
@@ -101,7 +82,7 @@ export function CandidateReview({
     setBusyId(candidate.id);
     try {
       await resolveStoryCandidate(projectPath, candidate.id, "accepted");
-      showToast("Candidate accepted.");
+      showToast("Candidate accepted — plan updated.");
       if (linkedItemId) {
         const send = window.confirm(
           "Send the accepted text to the Canvas (the linked Vault item)?",
@@ -172,9 +153,8 @@ export function CandidateReview({
                 <div className="sp-candidate-group">
                   <strong className="sp-candidate-group-title">Pending</strong>
                   {pending.map((candidate) => {
-                    const wardHits = extractWardHits(candidate.content);
+                    const wardHits = candidate.wardScan ?? [];
                     const ward = wardLabel(wardHits);
-                    const prose = stripWardTail(candidate.content);
                     const acceptLabel = linkedItemId ? "Accept & Send to Canvas" : "Accept";
                     const acceptDisabled = busyId === candidate.id || ward.tone === "block";
                     return (
@@ -186,12 +166,12 @@ export function CandidateReview({
                             {ward.label}
                           </span>
                           <div className="sp-row-actions">
-                            <button type="button" title="Copy text" onClick={() => void handleCopy(prose)}>
+                            <button type="button" title="Copy text" onClick={() => void handleCopy(candidate.content)}>
                               <Copy size={12} aria-hidden="true" />
                             </button>
                           </div>
                         </div>
-                        <p className="sp-candidate-content">{prose}</p>
+                        <p className="sp-candidate-content">{candidate.content}</p>
                         {wardHits.length > 0 && (
                           <ul className="sp-ward-hits">
                             {wardHits.map((hit, i) => (
@@ -238,7 +218,7 @@ export function CandidateReview({
                         <span className="sp-badge">#{candidate.candidateIndex + 1}</span>
                         <span className={`sp-status-pill ${candidate.status}`}>{candidate.status}</span>
                       </div>
-                      <p className="sp-candidate-content">{stripWardTail(candidate.content)}</p>
+                      <p className="sp-candidate-content">{candidate.content}</p>
                     </div>
                   ))}
                 </details>

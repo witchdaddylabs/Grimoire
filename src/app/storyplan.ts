@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { WardScanResponse } from "./vault";
+import type { WardScanResponse, WardScanHit } from "./vault";
 import type { AiProviderKind } from "./ai";
 
 // ── Story Plan types (Schema v3) ──
@@ -75,6 +75,7 @@ export type StoryCandidate = {
   promptSummary: string | null;
   candidateIndex: number;
   content: string;
+  wardScan: WardScanHit[];
   status: StoryCandidateStatus;
   createdAt: string;
 };

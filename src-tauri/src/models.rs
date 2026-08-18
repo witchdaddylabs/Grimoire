@@ -222,7 +222,7 @@ pub struct WardScanRequest {
     pub text: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct WardScanHit {
     pub id: String,
@@ -454,6 +454,7 @@ pub struct StoryCandidate {
     pub prompt_summary: Option<String>,
     pub candidate_index: i64,
     pub content: String,
+    pub ward_scan: Vec<WardScanHit>,
     pub status: String,
     pub created_at: String,
 }

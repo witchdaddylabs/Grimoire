@@ -1962,6 +1962,22 @@ select:focus-visible,
   border-top: 1px solid var(--border-subtle);
 }
 
+.sp-provider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sp-provider-row .compact-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sp-provider-row .button {
+  flex: 0 0 auto;
+  padding: 7px 9px;
+}
+
 /* Sprint 4: regeneration + candidate review */
 .sp-regenerate {
   display: flex;

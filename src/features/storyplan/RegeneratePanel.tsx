@@ -24,6 +24,7 @@ interface RegeneratePanelProps {
   providerSettings: AiProviderSettings | null;
   providerModels: AiProviderModelsResponse | null;
   onProviderChange: (provider: AiProviderKind) => void;
+  onRefreshModels: () => void;
   showToast: (msg: string) => void;
   /** Bump to clear the instruction after a successful run. */
   onGenerationDone: () => void;
@@ -56,6 +57,7 @@ export function RegeneratePanel({
   providerSettings,
   providerModels,
   onProviderChange,
+  onRefreshModels,
   showToast,
   onGenerationDone,
 }: RegeneratePanelProps) {
@@ -106,16 +108,26 @@ export function RegeneratePanel({
       </div>
 
       <label className="sp-field-label" htmlFor={`regen-provider-${targetKind}-${targetId}`}>Provider</label>
-      <select
-        id={`regen-provider-${targetKind}-${targetId}`}
-        className="compact-input"
-        value={activeProvider}
-        onChange={(e) => onProviderChange(e.target.value as AiProviderKind)}
-      >
-        {providers.map((p) => (
-          <option key={p} value={p}>{p}</option>
-        ))}
-      </select>
+      <div className="sp-provider-row">
+        <select
+          id={`regen-provider-${targetKind}-${targetId}`}
+          className="compact-input"
+          value={activeProvider}
+          onChange={(e) => onProviderChange(e.target.value as AiProviderKind)}
+        >
+          {providers.map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+        <button
+          className="button button-secondary"
+          type="button"
+          onClick={() => onRefreshModels()}
+          title="Refresh available models"
+        >
+          ↻
+        </button>
+      </div>
 
       <label className="sp-field-label" htmlFor={`regen-instruction-${targetKind}-${targetId}`}>Edit instruction</label>
       <textarea
