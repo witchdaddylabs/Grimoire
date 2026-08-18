@@ -206,6 +206,7 @@ pub fn chat_ollama(request: &AiChatRequest) -> CommandResult<AiChatResponse> {
         request_id: None,
         input_tokens: None,
         output_tokens: None,
+        stop_reason: None,
     })
 }
 
@@ -270,6 +271,7 @@ pub fn chat_openai_compatible(
             .get("usage")
             .and_then(|usage| usage.get("completion_tokens"))
             .and_then(Value::as_i64),
+        stop_reason: None,
     })
 }
 
@@ -329,6 +331,7 @@ pub fn chat_anthropic(
             .get("usage")
             .and_then(|usage| usage.get("output_tokens"))
             .and_then(Value::as_i64),
+        stop_reason: None,
     })
 }
 
@@ -390,6 +393,7 @@ pub fn chat_google(connection: &Connection, request: &AiChatRequest) -> CommandR
             .get("usageMetadata")
             .and_then(|usage| usage.get("candidatesTokenCount"))
             .and_then(Value::as_i64),
+        stop_reason: None,
     })
 }
 
@@ -457,6 +461,7 @@ pub fn generate_ollama(request: &AiGenerationRequest) -> CommandResult<AiChatRes
         request_id: None,
         input_tokens: None,
         output_tokens: None,
+        stop_reason: ollama_stop_reason(&response),
     })
 }
 
@@ -498,8 +503,8 @@ pub fn generate_openai_compatible(
     }
     let response: Value = serde_json::from_str(&raw)
         .map_err(|error| format!("Could not parse cloud provider response: {error}"))?;
-    let text =
-        openai_chat_text(&response).ok_or("Cloud provider returned an empty response.".to_string())?;
+    let text = openai_chat_text(&response)
+        .ok_or("Cloud provider returned an empty response.".to_string())?;
     Ok(AiChatResponse {
         provider: request.provider,
         model: request.model.clone(),
@@ -516,6 +521,7 @@ pub fn generate_openai_compatible(
             .get("usage")
             .and_then(|usage| usage.get("completion_tokens"))
             .and_then(Value::as_i64),
+        stop_reason: openai_stop_reason(&response),
     })
 }
 
@@ -574,6 +580,7 @@ pub fn generate_anthropic(
             .get("usage")
             .and_then(|usage| usage.get("output_tokens"))
             .and_then(Value::as_i64),
+        stop_reason: anthropic_stop_reason(&response),
     })
 }
 
@@ -640,6 +647,7 @@ pub fn generate_google(
             .get("usageMetadata")
             .and_then(|usage| usage.get("candidatesTokenCount"))
             .and_then(Value::as_i64),
+        stop_reason: gemini_stop_reason(&response),
     })
 }
 
@@ -731,6 +739,55 @@ pub fn gemini_chat_text(response: &Value) -> Option<String> {
         })
         .map(|text| text.trim().to_string())
         .filter(|text| !text.is_empty())
+}
+
+// ── Stop-reason extraction (per-provider field names) ──
+
+/// OpenAI-compatible APIs report "stop" or "length" on the chosen candidate.
+pub fn openai_stop_reason(response: &Value) -> Option<String> {
+    response
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("finish_reason"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+/// Anthropic reports "end_turn", "max_tokens", "stop_sequence", ...
+pub fn anthropic_stop_reason(response: &Value) -> Option<String> {
+    response
+        .get("stop_reason")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+/// Gemini reports "STOP", "MAX_TOKENS", "SAFETY", ... on the candidate.
+pub fn gemini_stop_reason(response: &Value) -> Option<String> {
+    response
+        .get("candidates")
+        .and_then(Value::as_array)
+        .and_then(|candidates| candidates.first())
+        .and_then(|candidate| candidate.get("finishReason"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+/// Ollama reports "stop" or "length" via `done_reason`.
+pub fn ollama_stop_reason(response: &Value) -> Option<String> {
+    response
+        .get("done_reason")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+/// True when the provider stopped because it hit its output token cap rather
+/// than finishing naturally — the text is truncated mid-thought.
+pub fn stopped_by_token_limit(stop_reason: Option<&str>) -> bool {
+    matches!(
+        stop_reason.map(|reason| reason.to_lowercase()).as_deref(),
+        Some("length") | Some("max_tokens")
+    )
 }
 
 // -- Ward scanning (moved here from main.rs, re-exported via db.rs) --
@@ -898,6 +955,32 @@ pub fn chat_with_vault(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stop_reason_helpers_detect_provider_token_limits() {
+        assert!(stopped_by_token_limit(Some("length")));
+        assert!(stopped_by_token_limit(Some("MAX_TOKENS")));
+        assert!(!stopped_by_token_limit(Some("stop")));
+        assert!(!stopped_by_token_limit(None));
+
+        let openai = serde_json::json!({"choices": [{"finish_reason": "length"}]});
+        assert_eq!(openai_stop_reason(&openai).as_deref(), Some("length"));
+
+        let anthropic = serde_json::json!({"stop_reason": "max_tokens"});
+        assert_eq!(anthropic_stop_reason(&anthropic).as_deref(), Some("max_tokens"));
+
+        let gemini = serde_json::json!({"candidates": [{"finishReason": "MAX_TOKENS"}]});
+        assert_eq!(gemini_stop_reason(&gemini).as_deref(), Some("MAX_TOKENS"));
+
+        let ollama = serde_json::json!({"done_reason": "length"});
+        assert_eq!(ollama_stop_reason(&ollama).as_deref(), Some("length"));
+    }
+
+    #[test]
+    fn punctuated_character_search_terms_are_valid_fts() {
+        assert_eq!(crate::db::fts_query_terms("O'Connor").unwrap(), "\"O'Connor\"");
+        assert_eq!(crate::db::fts_query_terms("Mary-Jane").unwrap(), "\"Mary-Jane\"");
+    }
 
     #[test]
     fn select_ollama_model_picks_previous_if_present() {

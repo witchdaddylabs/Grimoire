@@ -889,6 +889,18 @@ fn truncate_prompt_summary(summary: &str) -> String {
     }
 }
 
+/// Output budgets by target layer. Script regeneration needs room for a real
+/// manuscript scene; the smaller structural layers do not. The provider still
+/// reports its stop reason, which is checked below rather than silently storing
+/// a partial candidate.
+fn max_tokens_for_target(target_kind: &str) -> u32 {
+    match target_kind {
+        "script" => 12_000,
+        "scene" => 4_000,
+        _ => 2_000,
+    }
+}
+
 /// Resolve the regeneration context for any target kind. Beat targets are
 /// anchored on their owning scene; script targets are anchored on the scene
 /// whose linked manuscript item holds the prose.
@@ -1025,11 +1037,18 @@ pub fn storyplan_regenerate(request: StoryRegenerateRequest) -> CommandResult<St
             system_prompt: system_prompt.clone(),
             user_prompt: user_prompt.clone(),
             temperature: temperature_for_candidate(index, candidate_count),
-            max_tokens: 2000,
+            max_tokens: max_tokens_for_target(&target_kind),
         };
         // Each candidate is stored as soon as it arrives so a failure on a
         // later call never discards earlier variants.
         let response = crate::llm::generate_story_text(&connection, &generation)?;
+        if crate::llm::stopped_by_token_limit(response.stop_reason.as_deref()) {
+            return Err(format!(
+                "{target_kind} candidate {}/{} reached the output token limit; no partial candidate was stored. Increase the provider output budget and retry.",
+                index + 1,
+                candidate_count
+            ));
+        }
         let candidate_id = insert_candidate(
             &connection,
             &NewCandidate {

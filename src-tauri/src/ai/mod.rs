@@ -144,6 +144,10 @@ pub struct AiChatResponse {
     pub request_id: Option<String>,
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
+    /// Provider stop reason ("end_turn", "stop", "max_tokens", "length",
+    /// "MAX_TOKENS", ...). Lets callers detect output truncated by the token
+    /// cap instead of storing half a scene as a complete candidate.
+    pub stop_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

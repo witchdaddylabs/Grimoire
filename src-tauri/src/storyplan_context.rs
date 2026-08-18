@@ -163,7 +163,9 @@ fn scene_character_names(connection: &Connection, scene_id: &str) -> CommandResu
 }
 
 /// FTS5 retrieval of Vault `character` items for a set of names — the same
-/// grounding machinery `chat_with_vault` uses, filtered to character facts.
+/// grounding machinery `chat_with_vault` uses, but with the character filter
+/// applied in the query itself so manuscript chunks can't crowd out sheets
+/// (Codex catch on PR #25).
 fn retrieve_character_facts(
     connection: &Connection,
     names: &[String],
@@ -173,14 +175,12 @@ fn retrieve_character_facts(
         if facts.len() >= CHARACTER_FACT_TOTAL_CAP {
             break;
         }
-        let results = crate::db::search_chunks_internal(connection, name, CHARACTER_FACT_LIMIT * 3)?;
+        let results =
+            crate::db::search_character_chunks_internal(connection, name, CHARACTER_FACT_LIMIT)?;
         let mut taken_for_character = 0i64;
         for result in results {
             if taken_for_character >= CHARACTER_FACT_LIMIT || facts.len() >= CHARACTER_FACT_TOTAL_CAP {
                 break;
-            }
-            if result.item_type != "character" {
-                continue;
             }
             // Skip facts that duplicate an already-captured source chunk.
             if facts
@@ -440,7 +440,17 @@ pub fn render_context_prompt(context: &RegenerationContext) -> String {
             "Locked beats — these are final. Keep them verbatim in meaning and never rewrite them:",
         );
         for beat in &context.locked_beats {
-            locked.push_str(&format!("\n- [{}] {}", beat.beat_type, beat.content));
+            // Plan-level regeneration spans many scenes, so each constraint
+            // must name the scene it belongs to or the model can attach a
+            // locked event to the wrong outline scene (Codex catch on PR #25).
+            if context.scene.is_none() {
+                locked.push_str(&format!(
+                    "\n- [{}] (in scene \"{}\") {}",
+                    beat.beat_type, beat.scene_title, beat.content
+                ));
+            } else {
+                locked.push_str(&format!("\n- [{}] {}", beat.beat_type, beat.content));
+            }
         }
         sections.push(locked);
     }

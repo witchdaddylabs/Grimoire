@@ -429,17 +429,17 @@ pub fn fts_query_terms(query: &str) -> CommandResult<String> {
         if trimmed.is_empty() {
             continue;
         }
-        let mut escaped = String::new();
-        for ch in trimmed.chars() {
-            if ch == '"' || ch == '*' || ch == '(' || ch == ')' {
-                escaped.push('"');
-                escaped.push(ch);
-                escaped.push('"');
-            } else {
-                escaped.push(ch);
-            }
+        if trimmed.chars().all(|c| c.is_alphanumeric()) {
+            // Plain word: prefix search is safe and broadens recall.
+            terms.push(format!("{trimmed}*"));
+        } else {
+            // Internal punctuation (O'Connor, Mary-Jane, Dr.) is FTS5 syntax.
+            // Quote the whole term as an exact phrase — prefix wildcards
+            // cannot combine with quoted phrases, and exact matches are what
+            // a punctuated name wants anyway. Embedded quotes are doubled.
+            let escaped = trimmed.replace('"', "\"\"");
+            terms.push(format!("\"{escaped}\""));
         }
-        terms.push(format!("{}*", escaped));
     }
     if terms.is_empty() {
         return Err("Query is empty.".to_string());
@@ -503,6 +503,60 @@ pub fn scan_wards_internal(
 ) -> CommandResult<WardScanResponse> {
     let words = read_banned_words(connection)?;
     Ok(crate::llm::scan_wards(&words, text))
+}
+
+/// FTS5 search restricted to Vault `character` items. The limit is applied
+/// AFTER the item-type filter, so manuscript/note chunks that mention a name
+/// can never crowd out the actual character sheet (Codex catch on PR #25).
+pub fn search_character_chunks_internal(
+    connection: &Connection,
+    query: &str,
+    limit: i64,
+) -> CommandResult<Vec<SearchChunkResult>> {
+    let fts_query = fts_query_terms(query)?;
+    let limit = limit.clamp(1, 24);
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT
+              chunk_id,
+              item_id,
+              title,
+              item_type,
+              vault_path,
+              text,
+              bm25(item_chunks_fts) AS rank
+            FROM item_chunks_fts
+            WHERE item_chunks_fts MATCH ?1
+              AND item_type = 'character'
+            ORDER BY rank
+            LIMIT ?2
+            "#,
+        )
+        .map_err(|error| format!("Could not prepare character search: {error}"))?;
+
+    let mapped = statement
+        .query_map(params![fts_query, limit], |row| {
+            let raw_score: f64 = row.get(6)?;
+            let score = 0.0 - raw_score;
+            Ok(SearchChunkResult {
+                chunk_id: row.get(0)?,
+                item_id: row.get(1)?,
+                title: row.get(2)?,
+                item_type: row.get(3)?,
+                vault_path: row.get(4)?,
+                snippet: row.get(5)?,
+                score,
+                confidence: crate::llm::confidence_for_score(score),
+            })
+        })
+        .map_err(|error| format!("Could not search character chunks: {error}"))?;
+
+    let mut results = Vec::new();
+    for result in mapped {
+        results.push(result.map_err(|error| format!("Could not read search result: {error}"))?);
+    }
+    Ok(results)
 }
 
 pub const MAX_IMPORT_WORDS: i64 = 10_000;
@@ -792,6 +846,37 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM item_chunks WHERE item_id = 'i1'", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn fts_query_terms_quotes_internal_punctuation() {
+        assert_eq!(fts_query_terms("O'Connor").unwrap(), "\"O'Connor\"");
+        assert_eq!(fts_query_terms("Mary-Jane").unwrap(), "\"Mary-Jane\"");
+        assert_eq!(fts_query_terms("plain").unwrap(), "plain*");
+    }
+
+    #[test]
+    fn character_search_filters_before_limit() {
+        let conn = test_db();
+        // FTS rows do not require the item FK, so this isolates query ordering.
+        for (index, item_type) in [("note", "note"), ("chapter", "chapter"), ("character", "character")] {
+            conn.execute(
+                "INSERT INTO item_chunks_fts (chunk_id, item_id, title, item_type, vault_path, text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    format!("chunk_{index}"),
+                    format!("item_{index}"),
+                    format!("Mara {item_type}"),
+                    item_type,
+                    format!("Vault / {item_type}"),
+                    "Mara has a secret.",
+                ],
+            )
+            .unwrap();
+        }
+
+        let results = search_character_chunks_internal(&conn, "Mara", 1).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].item_type, "character");
     }
 
     #[test]
