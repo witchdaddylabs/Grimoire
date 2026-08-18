@@ -481,6 +481,23 @@ fn model_supports_temperature(model: &str) -> bool {
         || normalized.starts_with("o4-"))
 }
 
+/// o-series reasoning models expect the higher-priority instruction as a
+/// `developer` message rather than a legacy `system` message on the Chat
+/// Completions API (Codex P2 on PR #25).
+fn system_role_for_model(model: &str) -> &'static str {
+    let normalized = model.to_lowercase();
+    if normalized == "o1"
+        || normalized.starts_with("o1-")
+        || normalized == "o3"
+        || normalized.starts_with("o3-")
+        || normalized.starts_with("o4-")
+    {
+        "developer"
+    } else {
+        "system"
+    }
+}
+
 pub fn generate_openai_compatible(
     connection: &Connection,
     request: &AiGenerationRequest,
@@ -498,12 +515,13 @@ pub fn generate_openai_compatible(
     let client = http_client(Duration::from_secs(180))?;
     // GPT-5 / o-series models reject non-default sampling parameters — send
     // the field only when the model supports it (Codex P1 on PR #25).
+    let system_role = system_role_for_model(&request.model);
     let payload = if model_supports_temperature(&request.model) {
         json!({
             "model": request.model,
             "temperature": clamp_temperature(request.temperature, request.provider),
             "messages": [
-                { "role": "system", "content": request.system_prompt },
+                { "role": system_role, "content": request.system_prompt },
                 { "role": "user", "content": request.user_prompt }
             ]
         })
@@ -511,7 +529,7 @@ pub fn generate_openai_compatible(
         json!({
             "model": request.model,
             "messages": [
-                { "role": "system", "content": request.system_prompt },
+                { "role": system_role, "content": request.system_prompt },
                 { "role": "user", "content": request.user_prompt }
             ]
         })
@@ -1001,6 +1019,20 @@ pub fn chat_with_vault(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn system_role_for_model_picks_developer_for_o_series() {
+        // o-series reasoning models expect `developer`, not `system` (Codex P2).
+        assert_eq!(system_role_for_model("o1"), "developer");
+        assert_eq!(system_role_for_model("o1-pro"), "developer");
+        assert_eq!(system_role_for_model("o3"), "developer");
+        assert_eq!(system_role_for_model("o3-mini"), "developer");
+        assert_eq!(system_role_for_model("o4-mini"), "developer");
+        // Everything else keeps the legacy `system` role.
+        assert_eq!(system_role_for_model("gpt-5-mini"), "system");
+        assert_eq!(system_role_for_model("gpt-4o"), "system");
+        assert_eq!(system_role_for_model("claude-sonnet-4-5"), "system");
+    }
 
     #[test]
     fn model_temperature_support_detection() {
