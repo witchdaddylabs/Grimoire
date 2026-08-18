@@ -818,6 +818,24 @@ pub fn stopped_by_token_limit(stop_reason: Option<&str>) -> bool {
     )
 }
 
+/// Safe per-provider output ceiling (tokens). Anthropic *requires* `max_tokens`
+/// and rejects requests that exceed the model's limit, but the model list
+/// doesn't carry output-limit metadata — so we clamp to the lowest common
+/// denominator per provider (Claude 3 Opus = 4096 for Anthropic). This keeps
+/// script regeneration safe across every user-configurable cloud model (Codex
+/// P2 on PR #25).
+pub fn provider_output_ceiling(provider: AiProviderKind) -> u32 {
+    match provider {
+        AiProviderKind::Anthropic => 4096,
+        AiProviderKind::OpenAi => 4096,
+        AiProviderKind::OpenAiCompatible => 4096,
+        AiProviderKind::GoogleAiStudio => 8192,
+        // Local providers: leave headroom; the candidate loop already rejects
+        // token-truncated output via stop-reason detection.
+        AiProviderKind::Ollama => 16384,
+    }
+}
+
 // -- Ward scanning (moved here from main.rs, re-exported via db.rs) --
 
 pub fn seed_default_banned_words(connection: &Connection) -> CommandResult<()> {
@@ -999,6 +1017,25 @@ mod tests {
         assert!(model_supports_temperature("gpt-4.1"));
         assert!(model_supports_temperature("gpt-4o-mini"));
         assert!(model_supports_temperature("claude-sonnet-4-5"));
+    }
+
+    #[test]
+    fn provider_output_ceiling_clamps_anthropic_script_budget() {
+        // Script regeneration requests 12K tokens, but Claude 3 Opus only
+        // allows 4096 — the ceiling must clamp it (Codex P2 on PR #25).
+        use crate::ai::AiProviderKind;
+        assert_eq!(
+            provider_output_ceiling(AiProviderKind::Anthropic),
+            4096
+        );
+        assert_eq!(
+            provider_output_ceiling(AiProviderKind::OpenAi),
+            4096
+        );
+        assert_eq!(
+            provider_output_ceiling(AiProviderKind::GoogleAiStudio),
+            8192
+        );
     }
 
     #[test]
