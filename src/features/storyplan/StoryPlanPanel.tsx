@@ -16,6 +16,9 @@ import {
   type StoryBeat, type StoryBeatType, type StoryPlan, type StoryPlanDetail,
   type StoryPlanStatus, type StorySceneWithBeats,
 } from "../../app/storyplan";
+import type { AiProviderKind, AiProviderSettings, AiProviderModelsResponse } from "../../app/ai";
+import { CandidateReview } from "./CandidateReview";
+import { RegeneratePanel } from "./RegeneratePanel";
 
 const BEAT_TYPES: StoryBeatType[] = ["action", "dialogue", "revelation", "conflict", "transition", "other"];
 const PLAN_STATUSES: StoryPlanStatus[] = ["draft", "outline", "drafting", "revision", "done"];
@@ -38,6 +41,11 @@ interface StoryPlanPanelProps {
   vaultItems: VaultItemNode[];
   showToast: (msg: string) => void;
   onOpenLinkedItem: (itemId: string) => void;
+  providers: AiProviderKind[];
+  activeProvider: AiProviderKind;
+  providerSettings: AiProviderSettings | null;
+  providerModels: AiProviderModelsResponse | null;
+  onProviderChange: (provider: AiProviderKind) => void;
 }
 
 function charactersTextOf(beat: StoryBeat): string {
@@ -61,7 +69,17 @@ function sceneDraftOf(scene: StorySceneWithBeats): SceneDraft {
   };
 }
 
-export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinkedItem }: StoryPlanPanelProps) {
+export function StoryPlanPanel({
+  projectPath,
+  vaultItems,
+  showToast,
+  onOpenLinkedItem,
+  providers,
+  activeProvider,
+  providerSettings,
+  providerModels,
+  onProviderChange,
+}: StoryPlanPanelProps) {
   const [plans, setPlans] = useState<StoryPlan[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState("");
   const [detail, setDetail] = useState<StoryPlanDetail | null>(null);
@@ -78,6 +96,9 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
   const [editingBeatId, setEditingBeatId] = useState("");
   const [beatDraft, setBeatDraft] = useState<BeatDraft>({ content: "", beatType: "action", charactersText: "" });
   const [busy, setBusy] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const bumpRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   // Linkable Vault items: chapters and scenes only (the two-layer bridge)
   const linkableItems = vaultItems.filter((item) => item.itemType === "chapter" || item.itemType === "scene");
@@ -143,13 +164,14 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
       if (result && typeof result === "object" && "plan" in (result as Record<string, unknown>)) {
         setDetail(result as StoryPlanDetail);
       }
+      bumpRefresh();
       if (successMsg) showToast(successMsg);
     } catch (err) {
       showToast(describeError(err));
     } finally {
       setBusy(false);
     }
-  }, [busy, showToast]);
+  }, [busy, showToast, bumpRefresh]);
 
   const handleCreatePlan = useCallback(async () => {
     if (busy) return;
@@ -382,6 +404,36 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
             )}
           </div>
 
+          {/* Plan-level regeneration + candidate review */}
+          {detail && (
+            <>
+              <div className="sp-section">
+                <RegeneratePanel
+                  projectPath={projectPath}
+                  targetKind="plan"
+                  targetId={detail.id}
+                  linkedItemId={null}
+                  providers={providers}
+                  activeProvider={activeProvider}
+                  providerSettings={providerSettings}
+                  providerModels={providerModels}
+                  onProviderChange={onProviderChange}
+                  showToast={showToast}
+                  onGenerationDone={bumpRefresh}
+                />
+              </div>
+              <CandidateReview
+                projectPath={projectPath}
+                targetKind="plan"
+                targetId={detail.id}
+                linkedItemId={null}
+                showToast={showToast}
+                onSelectItem={onOpenLinkedItem}
+                refreshKey={refreshKey}
+              />
+            </>
+          )}
+
           {/* Scenes */}
           <div className="sp-scenes">
             {detail.scenes.map((scene, sceneIndex) => {
@@ -518,6 +570,32 @@ export function StoryPlanPanel({ projectPath, vaultItems, showToast, onOpenLinke
                       </button>
                     </div>
                   )}
+
+                  {/* Scene-level regeneration + candidate review */}
+                  <div className="sp-section">
+                    <RegeneratePanel
+                      projectPath={projectPath}
+                      targetKind="scene"
+                      targetId={scene.id}
+                      linkedItemId={scene.linkedItemId}
+                      providers={providers}
+                      activeProvider={activeProvider}
+                      providerSettings={providerSettings}
+                      providerModels={providerModels}
+                      onProviderChange={onProviderChange}
+                      showToast={showToast}
+                      onGenerationDone={bumpRefresh}
+                    />
+                    <CandidateReview
+                      projectPath={projectPath}
+                      targetKind="scene"
+                      targetId={scene.id}
+                      linkedItemId={scene.linkedItemId}
+                      showToast={showToast}
+                      onSelectItem={onOpenLinkedItem}
+                      refreshKey={refreshKey}
+                    />
+                  </div>
                 </div>
               );
             })}

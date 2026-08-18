@@ -318,6 +318,7 @@ export function useCoWriter(
 
   return {
     // Provider / engine
+    providers: AI_PROVIDERS,
     activeProvider, selectedModel, providerModels, activeProviderSettings, activeProviderIsCloud,
     engineState, engineStatus, engineError, modelDraft, modelOptions, apiKeyDraft, baseUrlDraft,
     // Cowriter
