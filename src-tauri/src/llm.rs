@@ -465,6 +465,22 @@ pub fn generate_ollama(request: &AiGenerationRequest) -> CommandResult<AiChatRes
     })
 }
 
+/// Models that reject non-default sampling parameters on the OpenAI
+/// Chat Completions API: the GPT-5 family and the o-series reasoning models.
+/// Sending a non-default `temperature` to them fails the whole request, so
+/// the field must be omitted rather than sent (Codex P1 on PR #25 — the
+/// default OpenAI model is gpt-5-mini, which would make every regeneration
+/// fail before producing a single candidate).
+fn model_supports_temperature(model: &str) -> bool {
+    let normalized = model.to_lowercase();
+    !(normalized.starts_with("gpt-5")
+        || normalized == "o1"
+        || normalized.starts_with("o1-")
+        || normalized == "o3"
+        || normalized.starts_with("o3-")
+        || normalized.starts_with("o4-"))
+}
+
 pub fn generate_openai_compatible(
     connection: &Connection,
     request: &AiGenerationRequest,
@@ -480,14 +496,26 @@ pub fn generate_openai_compatible(
         openai_compatible_url(&base_url)
     };
     let client = http_client(Duration::from_secs(180))?;
-    let payload = json!({
-        "model": request.model,
-        "temperature": clamp_temperature(request.temperature, request.provider),
-        "messages": [
-            { "role": "system", "content": request.system_prompt },
-            { "role": "user", "content": request.user_prompt }
-        ]
-    });
+    // GPT-5 / o-series models reject non-default sampling parameters — send
+    // the field only when the model supports it (Codex P1 on PR #25).
+    let payload = if model_supports_temperature(&request.model) {
+        json!({
+            "model": request.model,
+            "temperature": clamp_temperature(request.temperature, request.provider),
+            "messages": [
+                { "role": "system", "content": request.system_prompt },
+                { "role": "user", "content": request.user_prompt }
+            ]
+        })
+    } else {
+        json!({
+            "model": request.model,
+            "messages": [
+                { "role": "system", "content": request.system_prompt },
+                { "role": "user", "content": request.user_prompt }
+            ]
+        })
+    };
     let response = client
         .post(url)
         .bearer_auth(api_key)
@@ -955,6 +983,23 @@ pub fn chat_with_vault(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_temperature_support_detection() {
+        // GPT-5 family and o-series reject sampling parameters (Codex P1).
+        assert!(!model_supports_temperature("gpt-5-mini"));
+        assert!(!model_supports_temperature("gpt-5"));
+        assert!(!model_supports_temperature("GPT-5.1"));
+        assert!(!model_supports_temperature("o1"));
+        assert!(!model_supports_temperature("o1-pro"));
+        assert!(!model_supports_temperature("o3-mini"));
+        assert!(!model_supports_temperature("o4-mini"));
+        // Everything else keeps temperature.
+        assert!(model_supports_temperature("gpt-4o"));
+        assert!(model_supports_temperature("gpt-4.1"));
+        assert!(model_supports_temperature("gpt-4o-mini"));
+        assert!(model_supports_temperature("claude-sonnet-4-5"));
+    }
 
     #[test]
     fn stop_reason_helpers_detect_provider_token_limits() {
