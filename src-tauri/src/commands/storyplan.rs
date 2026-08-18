@@ -896,8 +896,12 @@ fn truncate_prompt_summary(summary: &str) -> String {
 /// still reports its stop reason, which is checked below rather than
 /// silently storing a partial candidate.
 fn max_tokens_for_target(target_kind: &str, provider: crate::ai::AiProviderKind) -> u32 {
+    // Plan targets render a synopsis + full scene-by-scene outline — they need
+    // the same headroom as script regeneration, not the beat-sized fallback
+    // (Codex P2 on PR #25).
     let requested = match target_kind {
         "script" => 12_000,
+        "plan" => 12_000,
         "scene" => 4_000,
         _ => 2_000,
     };
