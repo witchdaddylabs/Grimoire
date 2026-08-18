@@ -986,8 +986,29 @@ fn build_regeneration_user_prompt(
             ));
         }
         "scene" => {
+            // Convergence requires the model to see what it is revising:
+            // render the current beats (locked ones flagged as immutable) so
+            // an edit instruction revises instead of replacing blind (Codex
+            // catch on PR #25).
+            let beats = read_beats(connection, &request.target_id)?;
+            if !beats.is_empty() {
+                let mut current = String::from(
+                    "Current beats of this scene — revise these rather than replacing them; beats marked LOCKED are immutable:",
+                );
+                for beat in &beats {
+                    if beat.locked {
+                        current.push_str(&format!(
+                            "\n- [{}] (LOCKED) {}",
+                            beat.beat_type, beat.content
+                        ));
+                    } else {
+                        current.push_str(&format!("\n- [{}] {}", beat.beat_type, beat.content));
+                    }
+                }
+                parts.push(current);
+            }
             parts.push(format!(
-                "Writer's edit instruction: {}\n\nRegenerate this scene now: its summary and its beat list, one beat per line with its type.",
+                "Writer's edit instruction: {}\n\nRegenerate this scene now: an updated summary and a revised beat list, one beat per line with its type, keeping locked beats exactly as they are.",
                 context.instruction
             ));
         }
@@ -1396,5 +1417,43 @@ mod tests {
         assert!(prompt.contains("cold open"));
         assert!(prompt.contains("Locked beats"));
         assert!(prompt.contains("Something happens"));
+    }
+
+    #[test]
+    fn scene_regeneration_prompt_includes_current_beats() {
+        let conn = test_db();
+        insert_plan(&conn, "plan_1");
+        insert_scene(&conn, "scene_1", "plan_1");
+        conn.execute(
+            "INSERT INTO story_beats (id, scene_id, beat_type, content, locked, sort_order, created_at, updated_at) VALUES ('beat_dialogue', 'scene_1', 'dialogue', 'You knew about the ledger.', 0, 0, '1', '1')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO story_beats (id, scene_id, beat_type, content, locked, sort_order, created_at, updated_at) VALUES ('beat_anchor', 'scene_1', 'action', 'Mara slides the ledger across.', 1, 1, '1', '1')",
+            [],
+        )
+        .unwrap();
+
+        let request = StoryRegenerateRequest {
+            project_path: "/tmp/unused.grimoire".to_string(),
+            target_kind: "scene".to_string(),
+            target_id: "scene_1".to_string(),
+            instruction: "tighten the dialogue".to_string(),
+            provider: crate::ai::AiProviderKind::Ollama,
+            model: "llama3.2".to_string(),
+            candidate_count: Some(1),
+            scan_wards: None,
+        };
+        let context =
+            resolve_regeneration_context(&conn, "scene", "scene_1", "tighten the dialogue").unwrap();
+        let prompt = build_regeneration_user_prompt(&conn, &request, "scene", &context).unwrap();
+
+        // The model must see the current beats to revise them (Codex catch).
+        assert!(prompt.contains("You knew about the ledger."));
+        assert!(prompt.contains("Mara slides the ledger across."));
+        // Locked beats are flagged immutable inside the current-beats section.
+        assert!(prompt.contains("(LOCKED) Mara slides the ledger across."));
+        assert!(prompt.contains("tighten the dialogue"));
     }
 }
