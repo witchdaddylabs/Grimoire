@@ -116,6 +116,25 @@ pub struct AiChatRequest {
     pub grounded_context: String,
 }
 
+/// Structured generation request for the Story Plan regeneration pipeline.
+/// Unlike `AiChatRequest`, the system prompt and sampling temperature are
+/// explicit — the candidate loop needs varied temperatures, and regeneration
+/// must carry locked-beat constraints in the system prompt.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiGenerationRequest {
+    pub project_path: String,
+    pub provider: AiProviderKind,
+    pub model: String,
+    pub system_prompt: String,
+    pub user_prompt: String,
+    /// Sampling temperature; providers clamp it to their supported range.
+    pub temperature: f64,
+    /// Output cap in tokens. Only enforced where the provider requires it
+    /// (Anthropic); other providers use their own defaults.
+    pub max_tokens: u32,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiChatResponse {

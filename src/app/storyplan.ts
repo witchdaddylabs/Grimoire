@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { WardScanResponse } from "./vault";
+import type { AiProviderKind } from "./ai";
 
 // ── Story Plan types (Schema v3) ──
 
@@ -75,6 +77,51 @@ export type StoryCandidate = {
   content: string;
   status: StoryCandidateStatus;
   createdAt: string;
+};
+
+// ── Regeneration (Fabula-style convergent iteration) ──
+
+export type BeatAnchor = {
+  sceneTitle: string;
+  beatType: StoryBeatType;
+  content: string;
+};
+
+export type CharacterFact = {
+  character: string;
+  sourceTitle: string;
+  sourcePath: string;
+  snippet: string;
+};
+
+export type SceneOutlineEntry = {
+  title: string;
+  summary: string | null;
+};
+
+/** The six-point context the model saw, echoed back for transparency. */
+export type RegenerationContext = {
+  planName: string;
+  logline: string | null;
+  synopsis: string | null;
+  scene: StoryScene | null;
+  characterFacts: CharacterFact[];
+  previousSceneAnchor: BeatAnchor | null;
+  nextSceneAnchor: BeatAnchor | null;
+  lockedBeats: BeatAnchor[];
+  sceneOutline: SceneOutlineEntry[];
+  instruction: string;
+};
+
+export type StoryRegenerateCandidate = StoryCandidate & {
+  wardScan: WardScanResponse;
+};
+
+export type StoryRegenerateResponse = {
+  provider: AiProviderKind;
+  model: string;
+  context: RegenerationContext;
+  candidates: StoryRegenerateCandidate[];
 };
 
 // ── Tauri command wrappers ──
@@ -208,5 +255,29 @@ export function listStoryCandidates(projectPath: string, targetKind: CandidateTa
 export function resolveStoryCandidate(projectPath: string, candidateId: string, resolution: "accepted" | "rejected") {
   return invoke<StoryCandidate>("storyplan_candidate_resolve", {
     request: { projectPath, candidateId, resolution },
+  });
+}
+
+/**
+ * Regenerate a story-plan layer (plan / scene / beat / script) and store the
+ * candidate variants. The backend assembles the six-point convergence context
+ * (logline+synopsis, character facts, adjacent-scene anchors, locked beats,
+ * edit instruction), generates `candidateCount` variants with a temperature
+ * spread, stores each in story_candidates, and scans them against the wards.
+ */
+export function regenerateStoryLayer(
+  projectPath: string,
+  target: {
+    targetKind: CandidateTargetKind;
+    targetId: string;
+    instruction: string;
+    provider: AiProviderKind;
+    model: string;
+    candidateCount?: number;
+    scanWards?: boolean;
+  },
+) {
+  return invoke<StoryRegenerateResponse>("storyplan_regenerate", {
+    request: { projectPath, ...target },
   });
 }

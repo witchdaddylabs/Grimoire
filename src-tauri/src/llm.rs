@@ -1,7 +1,8 @@
 use crate::errors::CommandResult;
 use crate::helpers::timestamp;
 use crate::ai::{
-    AiChatRequest, AiChatResponse, AiModelInfo, AiProviderKind, AiProviderModelsResponse,
+    AiChatRequest, AiChatResponse, AiGenerationRequest, AiModelInfo, AiProviderKind,
+    AiProviderModelsResponse,
 };
 use crate::models::{
     BannedWord, WardScanHit, WardScanResponse,
@@ -397,6 +398,266 @@ fn http_client(timeout: Duration) -> CommandResult<reqwest::blocking::Client> {
         .timeout(timeout)
         .build()
         .map_err(|error| format!("Could not prepare HTTP client: {error}"))
+}
+
+// ── Structured generation (Story Plan regeneration pipeline) ──
+//
+// Unlike the chat_* functions above (fixed Co-Writer system prompt, no
+// temperature control), generation takes an explicit system prompt and
+// sampling temperature so the candidate loop can vary sampling while
+// locked-beat constraints ride in the system prompt.
+
+/// Provider-safe temperature: every supported backend accepts roughly 0..1,
+/// with OpenAI extending to 2. Clamp defensively — a rogue temperature from
+/// the frontend must not 400 the whole regeneration run.
+fn clamp_temperature(temperature: f64, provider: AiProviderKind) -> f64 {
+    let upper = if provider == AiProviderKind::OpenAi {
+        2.0
+    } else {
+        1.0
+    };
+    if !temperature.is_finite() {
+        return 0.7;
+    }
+    temperature.clamp(0.0, upper)
+}
+
+pub fn generate_ollama(request: &AiGenerationRequest) -> CommandResult<AiChatResponse> {
+    let client = http_client(Duration::from_secs(180))?;
+    let payload = json!({
+        "model": request.model,
+        "stream": false,
+        "options": { "temperature": clamp_temperature(request.temperature, AiProviderKind::Ollama) },
+        "messages": [
+            { "role": "system", "content": request.system_prompt },
+            { "role": "user", "content": request.user_prompt }
+        ]
+    });
+    let response: Value = client
+        .post("http://127.0.0.1:11434/api/chat")
+        .json(&payload)
+        .send()
+        .map_err(|error| format!("Could not reach Ollama chat endpoint: {error}"))?
+        .json()
+        .map_err(|error| format!("Could not read Ollama chat response: {error}"))?;
+    let text = response
+        .get("message")
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if text.is_empty() {
+        return Err("Ollama returned an empty response.".to_string());
+    }
+    Ok(AiChatResponse {
+        provider: AiProviderKind::Ollama,
+        model: request.model.clone(),
+        text,
+        request_id: None,
+        input_tokens: None,
+        output_tokens: None,
+    })
+}
+
+pub fn generate_openai_compatible(
+    connection: &Connection,
+    request: &AiGenerationRequest,
+) -> CommandResult<AiChatResponse> {
+    let api_key = get_api_key_secret(&request.project_path, request.provider)?
+        .ok_or("Add an API key for this cloud provider before regenerating story content.")?;
+    let base_url = provider_settings(connection, request.provider)?
+        .base_url
+        .ok_or("Set a base URL for this OpenAI-compatible provider.")?;
+    let url = if request.provider == AiProviderKind::OpenAi {
+        format!("{}/v1/chat/completions", base_url.trim_end_matches('/'))
+    } else {
+        openai_compatible_url(&base_url)
+    };
+    let client = http_client(Duration::from_secs(180))?;
+    let payload = json!({
+        "model": request.model,
+        "temperature": clamp_temperature(request.temperature, request.provider),
+        "messages": [
+            { "role": "system", "content": request.system_prompt },
+            { "role": "user", "content": request.user_prompt }
+        ]
+    });
+    let response = client
+        .post(url)
+        .bearer_auth(api_key)
+        .json(&payload)
+        .send()
+        .map_err(|error| format!("Cloud provider request failed: {error}"))?;
+    let status = response.status().as_u16();
+    let raw = response
+        .text()
+        .map_err(|error| format!("Could not read cloud provider response: {error}"))?;
+    if !(200..300).contains(&status) {
+        return Err(cloud_http_error("Cloud provider", status));
+    }
+    let response: Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("Could not parse cloud provider response: {error}"))?;
+    let text =
+        openai_chat_text(&response).ok_or("Cloud provider returned an empty response.".to_string())?;
+    Ok(AiChatResponse {
+        provider: request.provider,
+        model: request.model.clone(),
+        text,
+        request_id: response
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        input_tokens: response
+            .get("usage")
+            .and_then(|usage| usage.get("prompt_tokens"))
+            .and_then(Value::as_i64),
+        output_tokens: response
+            .get("usage")
+            .and_then(|usage| usage.get("completion_tokens"))
+            .and_then(Value::as_i64),
+    })
+}
+
+pub fn generate_anthropic(
+    connection: &Connection,
+    request: &AiGenerationRequest,
+) -> CommandResult<AiChatResponse> {
+    let api_key = get_api_key_secret(&request.project_path, request.provider)?
+        .ok_or("Add an API key for Anthropic before regenerating story content.")?;
+    let base_url = provider_settings(connection, request.provider)?
+        .base_url
+        .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+    let client = http_client(Duration::from_secs(180))?;
+    // Anthropic requires max_tokens; the caller decides the cap.
+    let payload = json!({
+        "model": request.model,
+        "max_tokens": request.max_tokens,
+        "temperature": clamp_temperature(request.temperature, AiProviderKind::Anthropic),
+        "system": request.system_prompt,
+        "messages": [
+            { "role": "user", "content": request.user_prompt }
+        ]
+    });
+    let mut request_builder =
+        client.post(format!("{}/v1/messages", base_url.trim_end_matches('/')));
+    for (name, value) in anthropic_headers(&api_key) {
+        request_builder = request_builder.header(name, value);
+    }
+    let response = request_builder
+        .json(&payload)
+        .send()
+        .map_err(|error| format!("Anthropic request failed: {error}"))?;
+    let status = response.status().as_u16();
+    let raw = response
+        .text()
+        .map_err(|error| format!("Could not read Anthropic response: {error}"))?;
+    if !(200..300).contains(&status) {
+        return Err(cloud_http_error("Anthropic", status));
+    }
+    let response: Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("Could not parse Anthropic response: {error}"))?;
+    let text = anthropic_chat_text(&response).ok_or("Anthropic returned an empty response.".to_string())?;
+    Ok(AiChatResponse {
+        provider: request.provider,
+        model: request.model.clone(),
+        text,
+        request_id: response
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        input_tokens: response
+            .get("usage")
+            .and_then(|usage| usage.get("input_tokens"))
+            .and_then(Value::as_i64),
+        output_tokens: response
+            .get("usage")
+            .and_then(|usage| usage.get("output_tokens"))
+            .and_then(Value::as_i64),
+    })
+}
+
+pub fn generate_google(
+    connection: &Connection,
+    request: &AiGenerationRequest,
+) -> CommandResult<AiChatResponse> {
+    let api_key = get_api_key_secret(&request.project_path, request.provider)?
+        .ok_or("Add an API key for Google AI Studio before regenerating story content.")?;
+    let base_url = provider_settings(connection, request.provider)?
+        .base_url
+        .unwrap_or_else(|| "https://generativelanguage.googleapis.com".to_string());
+    let client = http_client(Duration::from_secs(180))?;
+    let payload = json!({
+        "systemInstruction": {
+            "parts": [{ "text": request.system_prompt }]
+        },
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{ "text": request.user_prompt }]
+            }
+        ],
+        "generationConfig": {
+            "temperature": clamp_temperature(request.temperature, AiProviderKind::GoogleAiStudio)
+        }
+    });
+    let url = if base_url.trim_end_matches('/') == "https://generativelanguage.googleapis.com" {
+        gemini_generate_content_url(&request.model)
+    } else {
+        format!(
+            "{}/v1beta/models/{}:generateContent",
+            base_url.trim_end_matches('/'),
+            request.model
+        )
+    };
+    let response = client
+        .post(url)
+        .header("x-goog-api-key", api_key)
+        .json(&payload)
+        .send()
+        .map_err(|error| format!("Google AI Studio request failed: {error}"))?;
+    let status = response.status().as_u16();
+    let raw = response
+        .text()
+        .map_err(|error| format!("Could not read Google AI Studio response: {error}"))?;
+    if !(200..300).contains(&status) {
+        return Err(cloud_http_error("Google AI Studio", status));
+    }
+    let response: Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("Could not parse Google AI Studio response: {error}"))?;
+    let text =
+        gemini_chat_text(&response).ok_or("Google AI Studio returned an empty response.".to_string())?;
+    Ok(AiChatResponse {
+        provider: request.provider,
+        model: request.model.clone(),
+        text,
+        request_id: None,
+        input_tokens: response
+            .get("usageMetadata")
+            .and_then(|usage| usage.get("promptTokenCount"))
+            .and_then(Value::as_i64),
+        output_tokens: response
+            .get("usageMetadata")
+            .and_then(|usage| usage.get("candidatesTokenCount"))
+            .and_then(Value::as_i64),
+    })
+}
+
+/// Route a generation request to the right provider backend. Mirrors the
+/// `ai_chat_inner` dispatch so every configured provider works for
+/// regeneration, not just the Co-Writer path.
+pub fn generate_story_text(
+    connection: &Connection,
+    request: &AiGenerationRequest,
+) -> CommandResult<AiChatResponse> {
+    match request.provider {
+        AiProviderKind::Ollama => generate_ollama(request),
+        AiProviderKind::OpenAi | AiProviderKind::OpenAiCompatible => {
+            generate_openai_compatible(connection, request)
+        }
+        AiProviderKind::Anthropic => generate_anthropic(connection, request),
+        AiProviderKind::GoogleAiStudio => generate_google(connection, request),
+    }
 }
 
 fn cloud_http_error(provider: &str, status: u16) -> String {

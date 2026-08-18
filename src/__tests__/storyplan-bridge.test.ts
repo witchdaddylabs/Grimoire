@@ -9,6 +9,7 @@ import {
   createStoryScene, updateStoryScene, deleteStoryScene,
   createStoryBeat, updateStoryBeat, deleteStoryBeat, lockStoryBeat,
   reorderStoryNode, storeStoryCandidate, listStoryCandidates, resolveStoryCandidate,
+  regenerateStoryLayer,
 } from "../app/storyplan";
 
 beforeEach(() => {
@@ -178,6 +179,52 @@ describe("storyplan bridge functions", () => {
     await resolveStoryCandidate("/test/project.grimoire", "candidate_1", "accepted");
     expect(mockInvoke).toHaveBeenCalledWith("storyplan_candidate_resolve", {
       request: { projectPath: "/test/project.grimoire", candidateId: "candidate_1", resolution: "accepted" },
+    });
+  });
+
+  it("regenerateStoryLayer wraps the target into a request", async () => {
+    const fakeResponse = { provider: "anthropic", model: "claude-sonnet-4-5", context: {}, candidates: [] };
+    mockInvoke.mockResolvedValue(fakeResponse);
+    const result = await regenerateStoryLayer("/test/project.grimoire", {
+      targetKind: "scene",
+      targetId: "scene_1",
+      instruction: "make it colder",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      candidateCount: 3,
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("storyplan_regenerate", {
+      request: {
+        projectPath: "/test/project.grimoire",
+        targetKind: "scene",
+        targetId: "scene_1",
+        instruction: "make it colder",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        candidateCount: 3,
+      },
+    });
+    expect(result).toEqual(fakeResponse);
+  });
+
+  it("regenerateStoryLayer omits optional fields when unset", async () => {
+    mockInvoke.mockResolvedValue({});
+    await regenerateStoryLayer("/test/project.grimoire", {
+      targetKind: "beat",
+      targetId: "beat_1",
+      instruction: "sharpen",
+      provider: "ollama",
+      model: "llama3.2",
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("storyplan_regenerate", {
+      request: {
+        projectPath: "/test/project.grimoire",
+        targetKind: "beat",
+        targetId: "beat_1",
+        instruction: "sharpen",
+        provider: "ollama",
+        model: "llama3.2",
+      },
     });
   });
 });
