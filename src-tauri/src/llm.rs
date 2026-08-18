@@ -1,7 +1,8 @@
 use crate::errors::CommandResult;
 use crate::helpers::timestamp;
 use crate::ai::{
-    AiChatRequest, AiChatResponse, AiModelInfo, AiProviderKind, AiProviderModelsResponse,
+    AiChatRequest, AiChatResponse, AiGenerationRequest, AiModelInfo, AiProviderKind,
+    AiProviderModelsResponse,
 };
 use crate::models::{
     BannedWord, WardScanHit, WardScanResponse,
@@ -205,6 +206,7 @@ pub fn chat_ollama(request: &AiChatRequest) -> CommandResult<AiChatResponse> {
         request_id: None,
         input_tokens: None,
         output_tokens: None,
+        stop_reason: None,
     })
 }
 
@@ -269,6 +271,7 @@ pub fn chat_openai_compatible(
             .get("usage")
             .and_then(|usage| usage.get("completion_tokens"))
             .and_then(Value::as_i64),
+        stop_reason: None,
     })
 }
 
@@ -328,6 +331,7 @@ pub fn chat_anthropic(
             .get("usage")
             .and_then(|usage| usage.get("output_tokens"))
             .and_then(Value::as_i64),
+        stop_reason: None,
     })
 }
 
@@ -389,6 +393,7 @@ pub fn chat_google(connection: &Connection, request: &AiChatRequest) -> CommandR
             .get("usageMetadata")
             .and_then(|usage| usage.get("candidatesTokenCount"))
             .and_then(Value::as_i64),
+        stop_reason: None,
     })
 }
 
@@ -397,6 +402,316 @@ fn http_client(timeout: Duration) -> CommandResult<reqwest::blocking::Client> {
         .timeout(timeout)
         .build()
         .map_err(|error| format!("Could not prepare HTTP client: {error}"))
+}
+
+// ── Structured generation (Story Plan regeneration pipeline) ──
+//
+// Unlike the chat_* functions above (fixed Co-Writer system prompt, no
+// temperature control), generation takes an explicit system prompt and
+// sampling temperature so the candidate loop can vary sampling while
+// locked-beat constraints ride in the system prompt.
+
+/// Provider-safe temperature: every supported backend accepts roughly 0..1,
+/// with OpenAI extending to 2. Clamp defensively — a rogue temperature from
+/// the frontend must not 400 the whole regeneration run.
+fn clamp_temperature(temperature: f64, provider: AiProviderKind) -> f64 {
+    let upper = if provider == AiProviderKind::OpenAi {
+        2.0
+    } else {
+        1.0
+    };
+    if !temperature.is_finite() {
+        return 0.7;
+    }
+    temperature.clamp(0.0, upper)
+}
+
+pub fn generate_ollama(request: &AiGenerationRequest) -> CommandResult<AiChatResponse> {
+    let client = http_client(Duration::from_secs(180))?;
+    let payload = json!({
+        "model": request.model,
+        "stream": false,
+        "options": { "temperature": clamp_temperature(request.temperature, AiProviderKind::Ollama) },
+        "messages": [
+            { "role": "system", "content": request.system_prompt },
+            { "role": "user", "content": request.user_prompt }
+        ]
+    });
+    let response: Value = client
+        .post("http://127.0.0.1:11434/api/chat")
+        .json(&payload)
+        .send()
+        .map_err(|error| format!("Could not reach Ollama chat endpoint: {error}"))?
+        .json()
+        .map_err(|error| format!("Could not read Ollama chat response: {error}"))?;
+    let text = response
+        .get("message")
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if text.is_empty() {
+        return Err("Ollama returned an empty response.".to_string());
+    }
+    Ok(AiChatResponse {
+        provider: AiProviderKind::Ollama,
+        model: request.model.clone(),
+        text,
+        request_id: None,
+        input_tokens: None,
+        output_tokens: None,
+        stop_reason: ollama_stop_reason(&response),
+    })
+}
+
+/// Models that reject non-default sampling parameters on the OpenAI
+/// Chat Completions API: the GPT-5 family and the o-series reasoning models.
+/// Sending a non-default `temperature` to them fails the whole request, so
+/// the field must be omitted rather than sent (Codex P1 on PR #25 — the
+/// default OpenAI model is gpt-5-mini, which would make every regeneration
+/// fail before producing a single candidate).
+fn model_supports_temperature(model: &str) -> bool {
+    let normalized = model.to_lowercase();
+    !(normalized.starts_with("gpt-5")
+        || normalized == "o1"
+        || normalized.starts_with("o1-")
+        || normalized == "o3"
+        || normalized.starts_with("o3-")
+        || normalized.starts_with("o4-"))
+}
+
+/// o-series reasoning models expect the higher-priority instruction as a
+/// `developer` message rather than a legacy `system` message on the Chat
+/// Completions API (Codex P2 on PR #25).
+fn system_role_for_model(model: &str) -> &'static str {
+    let normalized = model.to_lowercase();
+    if normalized == "o1"
+        || normalized.starts_with("o1-")
+        || normalized == "o3"
+        || normalized.starts_with("o3-")
+        || normalized.starts_with("o4-")
+    {
+        "developer"
+    } else {
+        "system"
+    }
+}
+
+pub fn generate_openai_compatible(
+    connection: &Connection,
+    request: &AiGenerationRequest,
+) -> CommandResult<AiChatResponse> {
+    let api_key = get_api_key_secret(&request.project_path, request.provider)?
+        .ok_or("Add an API key for this cloud provider before regenerating story content.")?;
+    let base_url = provider_settings(connection, request.provider)?
+        .base_url
+        .ok_or("Set a base URL for this OpenAI-compatible provider.")?;
+    let url = if request.provider == AiProviderKind::OpenAi {
+        format!("{}/v1/chat/completions", base_url.trim_end_matches('/'))
+    } else {
+        openai_compatible_url(&base_url)
+    };
+    let client = http_client(Duration::from_secs(180))?;
+    // GPT-5 / o-series models reject non-default sampling parameters — send
+    // the field only when the model supports it (Codex P1 on PR #25).
+    let system_role = system_role_for_model(&request.model);
+    let payload = if model_supports_temperature(&request.model) {
+        json!({
+            "model": request.model,
+            "temperature": clamp_temperature(request.temperature, request.provider),
+            "messages": [
+                { "role": system_role, "content": request.system_prompt },
+                { "role": "user", "content": request.user_prompt }
+            ]
+        })
+    } else {
+        json!({
+            "model": request.model,
+            "messages": [
+                { "role": system_role, "content": request.system_prompt },
+                { "role": "user", "content": request.user_prompt }
+            ]
+        })
+    };
+    let response = client
+        .post(url)
+        .bearer_auth(api_key)
+        .json(&payload)
+        .send()
+        .map_err(|error| format!("Cloud provider request failed: {error}"))?;
+    let status = response.status().as_u16();
+    let raw = response
+        .text()
+        .map_err(|error| format!("Could not read cloud provider response: {error}"))?;
+    if !(200..300).contains(&status) {
+        return Err(cloud_http_error("Cloud provider", status));
+    }
+    let response: Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("Could not parse cloud provider response: {error}"))?;
+    let text = openai_chat_text(&response)
+        .ok_or("Cloud provider returned an empty response.".to_string())?;
+    Ok(AiChatResponse {
+        provider: request.provider,
+        model: request.model.clone(),
+        text,
+        request_id: response
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        input_tokens: response
+            .get("usage")
+            .and_then(|usage| usage.get("prompt_tokens"))
+            .and_then(Value::as_i64),
+        output_tokens: response
+            .get("usage")
+            .and_then(|usage| usage.get("completion_tokens"))
+            .and_then(Value::as_i64),
+        stop_reason: openai_stop_reason(&response),
+    })
+}
+
+pub fn generate_anthropic(
+    connection: &Connection,
+    request: &AiGenerationRequest,
+) -> CommandResult<AiChatResponse> {
+    let api_key = get_api_key_secret(&request.project_path, request.provider)?
+        .ok_or("Add an API key for Anthropic before regenerating story content.")?;
+    let base_url = provider_settings(connection, request.provider)?
+        .base_url
+        .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+    let client = http_client(Duration::from_secs(180))?;
+    // Anthropic requires max_tokens; the caller decides the cap.
+    let payload = json!({
+        "model": request.model,
+        "max_tokens": request.max_tokens,
+        "temperature": clamp_temperature(request.temperature, AiProviderKind::Anthropic),
+        "system": request.system_prompt,
+        "messages": [
+            { "role": "user", "content": request.user_prompt }
+        ]
+    });
+    let mut request_builder =
+        client.post(format!("{}/v1/messages", base_url.trim_end_matches('/')));
+    for (name, value) in anthropic_headers(&api_key) {
+        request_builder = request_builder.header(name, value);
+    }
+    let response = request_builder
+        .json(&payload)
+        .send()
+        .map_err(|error| format!("Anthropic request failed: {error}"))?;
+    let status = response.status().as_u16();
+    let raw = response
+        .text()
+        .map_err(|error| format!("Could not read Anthropic response: {error}"))?;
+    if !(200..300).contains(&status) {
+        return Err(cloud_http_error("Anthropic", status));
+    }
+    let response: Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("Could not parse Anthropic response: {error}"))?;
+    let text = anthropic_chat_text(&response).ok_or("Anthropic returned an empty response.".to_string())?;
+    Ok(AiChatResponse {
+        provider: request.provider,
+        model: request.model.clone(),
+        text,
+        request_id: response
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        input_tokens: response
+            .get("usage")
+            .and_then(|usage| usage.get("input_tokens"))
+            .and_then(Value::as_i64),
+        output_tokens: response
+            .get("usage")
+            .and_then(|usage| usage.get("output_tokens"))
+            .and_then(Value::as_i64),
+        stop_reason: anthropic_stop_reason(&response),
+    })
+}
+
+pub fn generate_google(
+    connection: &Connection,
+    request: &AiGenerationRequest,
+) -> CommandResult<AiChatResponse> {
+    let api_key = get_api_key_secret(&request.project_path, request.provider)?
+        .ok_or("Add an API key for Google AI Studio before regenerating story content.")?;
+    let base_url = provider_settings(connection, request.provider)?
+        .base_url
+        .unwrap_or_else(|| "https://generativelanguage.googleapis.com".to_string());
+    let client = http_client(Duration::from_secs(180))?;
+    let payload = json!({
+        "systemInstruction": {
+            "parts": [{ "text": request.system_prompt }]
+        },
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{ "text": request.user_prompt }]
+            }
+        ],
+        "generationConfig": {
+            "temperature": clamp_temperature(request.temperature, AiProviderKind::GoogleAiStudio)
+        }
+    });
+    let url = if base_url.trim_end_matches('/') == "https://generativelanguage.googleapis.com" {
+        gemini_generate_content_url(&request.model)
+    } else {
+        format!(
+            "{}/v1beta/models/{}:generateContent",
+            base_url.trim_end_matches('/'),
+            request.model
+        )
+    };
+    let response = client
+        .post(url)
+        .header("x-goog-api-key", api_key)
+        .json(&payload)
+        .send()
+        .map_err(|error| format!("Google AI Studio request failed: {error}"))?;
+    let status = response.status().as_u16();
+    let raw = response
+        .text()
+        .map_err(|error| format!("Could not read Google AI Studio response: {error}"))?;
+    if !(200..300).contains(&status) {
+        return Err(cloud_http_error("Google AI Studio", status));
+    }
+    let response: Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("Could not parse Google AI Studio response: {error}"))?;
+    let text =
+        gemini_chat_text(&response).ok_or("Google AI Studio returned an empty response.".to_string())?;
+    Ok(AiChatResponse {
+        provider: request.provider,
+        model: request.model.clone(),
+        text,
+        request_id: None,
+        input_tokens: response
+            .get("usageMetadata")
+            .and_then(|usage| usage.get("promptTokenCount"))
+            .and_then(Value::as_i64),
+        output_tokens: response
+            .get("usageMetadata")
+            .and_then(|usage| usage.get("candidatesTokenCount"))
+            .and_then(Value::as_i64),
+        stop_reason: gemini_stop_reason(&response),
+    })
+}
+
+/// Route a generation request to the right provider backend. Mirrors the
+/// `ai_chat_inner` dispatch so every configured provider works for
+/// regeneration, not just the Co-Writer path.
+pub fn generate_story_text(
+    connection: &Connection,
+    request: &AiGenerationRequest,
+) -> CommandResult<AiChatResponse> {
+    match request.provider {
+        AiProviderKind::Ollama => generate_ollama(request),
+        AiProviderKind::OpenAi | AiProviderKind::OpenAiCompatible => {
+            generate_openai_compatible(connection, request)
+        }
+        AiProviderKind::Anthropic => generate_anthropic(connection, request),
+        AiProviderKind::GoogleAiStudio => generate_google(connection, request),
+    }
 }
 
 fn cloud_http_error(provider: &str, status: u16) -> String {
@@ -470,6 +785,73 @@ pub fn gemini_chat_text(response: &Value) -> Option<String> {
         })
         .map(|text| text.trim().to_string())
         .filter(|text| !text.is_empty())
+}
+
+// ── Stop-reason extraction (per-provider field names) ──
+
+/// OpenAI-compatible APIs report "stop" or "length" on the chosen candidate.
+pub fn openai_stop_reason(response: &Value) -> Option<String> {
+    response
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("finish_reason"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+/// Anthropic reports "end_turn", "max_tokens", "stop_sequence", ...
+pub fn anthropic_stop_reason(response: &Value) -> Option<String> {
+    response
+        .get("stop_reason")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+/// Gemini reports "STOP", "MAX_TOKENS", "SAFETY", ... on the candidate.
+pub fn gemini_stop_reason(response: &Value) -> Option<String> {
+    response
+        .get("candidates")
+        .and_then(Value::as_array)
+        .and_then(|candidates| candidates.first())
+        .and_then(|candidate| candidate.get("finishReason"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+/// Ollama reports "stop" or "length" via `done_reason`.
+pub fn ollama_stop_reason(response: &Value) -> Option<String> {
+    response
+        .get("done_reason")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+/// True when the provider stopped because it hit its output token cap rather
+/// than finishing naturally — the text is truncated mid-thought.
+pub fn stopped_by_token_limit(stop_reason: Option<&str>) -> bool {
+    matches!(
+        stop_reason.map(|reason| reason.to_lowercase()).as_deref(),
+        Some("length") | Some("max_tokens")
+    )
+}
+
+/// Safe per-provider output ceiling (tokens). Anthropic *requires* `max_tokens`
+/// and rejects requests that exceed the model's limit, but the model list
+/// doesn't carry output-limit metadata — so we clamp to the lowest common
+/// denominator per provider (Claude 3 Opus = 4096 for Anthropic). This keeps
+/// script regeneration safe across every user-configurable cloud model (Codex
+/// P2 on PR #25).
+pub fn provider_output_ceiling(provider: AiProviderKind) -> u32 {
+    match provider {
+        AiProviderKind::Anthropic => 4096,
+        AiProviderKind::OpenAi => 4096,
+        AiProviderKind::OpenAiCompatible => 4096,
+        AiProviderKind::GoogleAiStudio => 8192,
+        // Local providers: leave headroom; the candidate loop already rejects
+        // token-truncated output via stop-reason detection.
+        AiProviderKind::Ollama => 16384,
+    }
 }
 
 // -- Ward scanning (moved here from main.rs, re-exported via db.rs) --
@@ -637,6 +1019,82 @@ pub fn chat_with_vault(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn system_role_for_model_picks_developer_for_o_series() {
+        // o-series reasoning models expect `developer`, not `system` (Codex P2).
+        assert_eq!(system_role_for_model("o1"), "developer");
+        assert_eq!(system_role_for_model("o1-pro"), "developer");
+        assert_eq!(system_role_for_model("o3"), "developer");
+        assert_eq!(system_role_for_model("o3-mini"), "developer");
+        assert_eq!(system_role_for_model("o4-mini"), "developer");
+        // Everything else keeps the legacy `system` role.
+        assert_eq!(system_role_for_model("gpt-5-mini"), "system");
+        assert_eq!(system_role_for_model("gpt-4o"), "system");
+        assert_eq!(system_role_for_model("claude-sonnet-4-5"), "system");
+    }
+
+    #[test]
+    fn model_temperature_support_detection() {
+        // GPT-5 family and o-series reject sampling parameters (Codex P1).
+        assert!(!model_supports_temperature("gpt-5-mini"));
+        assert!(!model_supports_temperature("gpt-5"));
+        assert!(!model_supports_temperature("GPT-5.1"));
+        assert!(!model_supports_temperature("o1"));
+        assert!(!model_supports_temperature("o1-pro"));
+        assert!(!model_supports_temperature("o3-mini"));
+        assert!(!model_supports_temperature("o4-mini"));
+        // Everything else keeps temperature.
+        assert!(model_supports_temperature("gpt-4o"));
+        assert!(model_supports_temperature("gpt-4.1"));
+        assert!(model_supports_temperature("gpt-4o-mini"));
+        assert!(model_supports_temperature("claude-sonnet-4-5"));
+    }
+
+    #[test]
+    fn provider_output_ceiling_clamps_anthropic_script_budget() {
+        // Script regeneration requests 12K tokens, but Claude 3 Opus only
+        // allows 4096 — the ceiling must clamp it (Codex P2 on PR #25).
+        use crate::ai::AiProviderKind;
+        assert_eq!(
+            provider_output_ceiling(AiProviderKind::Anthropic),
+            4096
+        );
+        assert_eq!(
+            provider_output_ceiling(AiProviderKind::OpenAi),
+            4096
+        );
+        assert_eq!(
+            provider_output_ceiling(AiProviderKind::GoogleAiStudio),
+            8192
+        );
+    }
+
+    #[test]
+    fn stop_reason_helpers_detect_provider_token_limits() {
+        assert!(stopped_by_token_limit(Some("length")));
+        assert!(stopped_by_token_limit(Some("MAX_TOKENS")));
+        assert!(!stopped_by_token_limit(Some("stop")));
+        assert!(!stopped_by_token_limit(None));
+
+        let openai = serde_json::json!({"choices": [{"finish_reason": "length"}]});
+        assert_eq!(openai_stop_reason(&openai).as_deref(), Some("length"));
+
+        let anthropic = serde_json::json!({"stop_reason": "max_tokens"});
+        assert_eq!(anthropic_stop_reason(&anthropic).as_deref(), Some("max_tokens"));
+
+        let gemini = serde_json::json!({"candidates": [{"finishReason": "MAX_TOKENS"}]});
+        assert_eq!(gemini_stop_reason(&gemini).as_deref(), Some("MAX_TOKENS"));
+
+        let ollama = serde_json::json!({"done_reason": "length"});
+        assert_eq!(ollama_stop_reason(&ollama).as_deref(), Some("length"));
+    }
+
+    #[test]
+    fn punctuated_character_search_terms_are_valid_fts() {
+        assert_eq!(crate::db::fts_query_terms("O'Connor").unwrap(), "\"O'Connor\"");
+        assert_eq!(crate::db::fts_query_terms("Mary-Jane").unwrap(), "\"Mary-Jane\"");
+    }
 
     #[test]
     fn select_ollama_model_picks_previous_if_present() {

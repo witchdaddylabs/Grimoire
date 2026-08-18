@@ -190,6 +190,70 @@ fn delete_candidates_for(connection: &Connection, target_ids: &[String]) -> Comm
     Ok(())
 }
 
+/// Candidate row fields for insertion. Bundled into a struct so the helper
+/// keeps a narrow signature as the pipeline grows fields.
+pub(crate) struct NewCandidate<'a> {
+    pub target_kind: &'a str,
+    pub target_id: &'a str,
+    pub provider: &'a str,
+    pub model: &'a str,
+    pub prompt_summary: Option<&'a str>,
+    pub candidate_index: i64,
+    pub content: &'a str,
+}
+
+/// Insert one candidate row and return its id. Shared by the manual store
+/// command and the regeneration pipeline.
+pub(crate) fn insert_candidate(connection: &Connection, new: &NewCandidate) -> CommandResult<String> {
+    let candidate_id = format!("candidate_{}", timestamp_nanos());
+    connection
+        .execute(
+            r#"
+            INSERT INTO story_candidates (id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, status, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', ?9)
+            "#,
+            params![
+                candidate_id,
+                new.target_kind,
+                new.target_id,
+                new.provider,
+                new.model,
+                new.prompt_summary,
+                new.candidate_index,
+                new.content,
+                timestamp()
+            ],
+        )
+        .map_err(|error| format!("Could not store story candidate: {error}"))?;
+    Ok(candidate_id)
+}
+
+pub(crate) fn read_candidate(connection: &Connection, candidate_id: &str) -> CommandResult<StoryCandidate> {
+    connection
+        .query_row(
+            r#"
+            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, status, created_at
+            FROM story_candidates WHERE id = ?1
+            "#,
+            params![candidate_id],
+            |row| {
+                Ok(StoryCandidate {
+                    id: row.get(0)?,
+                    target_kind: row.get(1)?,
+                    target_id: row.get(2)?,
+                    provider: row.get(3)?,
+                    model: row.get(4)?,
+                    prompt_summary: row.get(5)?,
+                    candidate_index: row.get(6)?,
+                    content: row.get(7)?,
+                    status: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
+            },
+        )
+        .map_err(|error| format!("Could not read story candidate: {error}"))
+}
+
 // ── Plan commands ──
 
 #[tauri::command]
@@ -681,51 +745,20 @@ pub fn storyplan_candidate_store(request: StoryCandidateStoreRequest) -> Command
         return Err("Candidate content cannot be empty.".to_string());
     }
 
-    let candidate_id = format!("candidate_{}", timestamp_nanos());
-    let now = timestamp();
-    connection
-        .execute(
-            r#"
-            INSERT INTO story_candidates (id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, status, created_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', ?9)
-            "#,
-            params![
-                candidate_id,
-                target_kind,
-                request.target_id,
-                request.provider,
-                request.model,
-                request.prompt_summary,
-                request.candidate_index,
-                content,
-                now
-            ],
-        )
-        .map_err(|error| format!("Could not store story candidate: {error}"))?;
+    let candidate_id = insert_candidate(
+        &connection,
+        &NewCandidate {
+            target_kind: &target_kind,
+            target_id: &request.target_id,
+            provider: &request.provider,
+            model: &request.model,
+            prompt_summary: request.prompt_summary.as_deref(),
+            candidate_index: request.candidate_index,
+            content: &content,
+        },
+    )?;
 
-    connection
-        .query_row(
-            r#"
-            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, status, created_at
-            FROM story_candidates WHERE id = ?1
-            "#,
-            params![candidate_id],
-            |row| {
-                Ok(StoryCandidate {
-                    id: row.get(0)?,
-                    target_kind: row.get(1)?,
-                    target_id: row.get(2)?,
-                    provider: row.get(3)?,
-                    model: row.get(4)?,
-                    prompt_summary: row.get(5)?,
-                    candidate_index: row.get(6)?,
-                    content: row.get(7)?,
-                    status: row.get(8)?,
-                    created_at: row.get(9)?,
-                })
-            },
-        )
-        .map_err(|error| format!("Could not read stored candidate: {error}"))
+    read_candidate(&connection, &candidate_id)
 }
 
 #[tauri::command]
@@ -827,6 +860,257 @@ pub fn storyplan_candidate_resolve(request: StoryCandidateResolveRequest) -> Com
             },
         )
         .map_err(|error| format!("Could not read resolved candidate: {error}"))
+}
+
+// ── Regeneration pipeline (Fabula-style convergent iteration) ──
+
+const MAX_CANDIDATES: i64 = 5;
+/// Truncate stored prompt summaries — the DB keeps what was asked, not the
+/// full assembled context (schema note: keep the DB lean).
+const PROMPT_SUMMARY_MAX_CHARS: usize = 200;
+
+/// Temperature spread across the candidate loop: the first variant is
+/// conservative, later ones progressively looser. This is what makes the
+/// loop a genuine set of alternatives instead of three near-duplicates.
+fn temperature_for_candidate(index: i64, count: i64) -> f64 {
+    if count <= 1 {
+        return 0.7;
+    }
+    0.4 + 0.6 * (index as f64) / ((count - 1) as f64)
+}
+
+fn truncate_prompt_summary(summary: &str) -> String {
+    let trimmed = summary.trim();
+    if trimmed.chars().count() <= PROMPT_SUMMARY_MAX_CHARS {
+        trimmed.to_string()
+    } else {
+        let cut: String = trimmed.chars().take(PROMPT_SUMMARY_MAX_CHARS).collect();
+        format!("{cut}…")
+    }
+}
+
+/// Output budgets by target layer, capped to the provider's safe ceiling.
+/// Script regeneration needs room for a real manuscript scene; the smaller
+/// structural layers do not. Capping avoids requesting 12K tokens from an
+/// Anthropic model that only allows 4K (Codex P2 on PR #25). The provider
+/// still reports its stop reason, which is checked below rather than
+/// silently storing a partial candidate.
+fn max_tokens_for_target(target_kind: &str, provider: crate::ai::AiProviderKind) -> u32 {
+    // Plan targets render a synopsis + full scene-by-scene outline — they need
+    // the same headroom as script regeneration, not the beat-sized fallback
+    // (Codex P2 on PR #25).
+    let requested = match target_kind {
+        "script" => 12_000,
+        "plan" => 12_000,
+        "scene" => 4_000,
+        _ => 2_000,
+    };
+    let ceiling = crate::llm::provider_output_ceiling(provider);
+    requested.min(ceiling)
+}
+
+/// Resolve the regeneration context for any target kind. Beat targets are
+/// anchored on their owning scene; script targets are anchored on the scene
+/// whose linked manuscript item holds the prose.
+fn resolve_regeneration_context(
+    connection: &Connection,
+    target_kind: &str,
+    target_id: &str,
+    instruction: &str,
+) -> CommandResult<crate::storyplan_context::RegenerationContext> {
+    match target_kind {
+        "plan" => crate::storyplan_context::assemble_plan_context(connection, target_id, instruction),
+        "scene" | "script" => {
+            crate::storyplan_context::assemble_scene_context(connection, target_id, instruction)
+        }
+        "beat" => {
+            let scene_id = scene_id_for_beat(connection, target_id)?;
+            crate::storyplan_context::assemble_scene_context(connection, &scene_id, instruction)
+        }
+        other => Err(format!(
+            "Regeneration target must be plan, scene, beat, or script, got: {other}"
+        )),
+    }
+}
+
+/// Build the user prompt: assembled context + current content for beat/script
+/// targets + the writer's instruction as the final directive.
+fn build_regeneration_user_prompt(
+    connection: &Connection,
+    request: &StoryRegenerateRequest,
+    target_kind: &str,
+    context: &crate::storyplan_context::RegenerationContext,
+) -> CommandResult<String> {
+    let mut parts: Vec<String> = vec![crate::storyplan_context::render_context_prompt(context)];
+
+    match target_kind {
+        "beat" => {
+            let scene_id = scene_id_for_beat(connection, &request.target_id)?;
+            let beats = read_beats(connection, &scene_id)?;
+            let beat = beats
+                .iter()
+                .find(|beat| beat.id == request.target_id)
+                .ok_or("Could not find that story beat.".to_string())?;
+            if beat.locked {
+                return Err(
+                    "That beat is pinned. Unlock it before regenerating — locked beats are final."
+                        .to_string(),
+                );
+            }
+            parts.push(format!(
+                "Current beat [{}]:\n{}",
+                beat.beat_type, beat.content
+            ));
+            parts.push(format!(
+                "Writer's edit instruction: {}\n\nRegenerate this beat now.",
+                context.instruction
+            ));
+        }
+        "script" => {
+            let scene = context
+                .scene
+                .as_ref()
+                .ok_or("Could not find that story scene.".to_string())?;
+            let linked_item_id = scene.linked_item_id.clone().ok_or(
+                "Link this scene to a manuscript item first — the script layer lives in the Vault.",
+            )?;
+            match crate::db::read_item_detail(connection, &linked_item_id) {
+                Ok(detail) => {
+                    parts.push(format!(
+                        "Current prose (from \"{}\"):\n{}",
+                        detail.title, detail.content
+                    ));
+                }
+                Err(_) => {
+                    return Err(
+                        "The linked manuscript item is missing or archived. Re-link the scene before regenerating."
+                            .to_string(),
+                    );
+                }
+            }
+            parts.push(format!(
+                "Writer's edit instruction: {}\n\nRegenerate the prose for this scene now.",
+                context.instruction
+            ));
+        }
+        "scene" => {
+            // Convergence requires the model to see what it is revising:
+            // render the current beats (locked ones flagged as immutable) so
+            // an edit instruction revises instead of replacing blind (Codex
+            // catch on PR #25).
+            let beats = read_beats(connection, &request.target_id)?;
+            if !beats.is_empty() {
+                let mut current = String::from(
+                    "Current beats of this scene — revise these rather than replacing them; beats marked LOCKED are immutable:",
+                );
+                for beat in &beats {
+                    if beat.locked {
+                        current.push_str(&format!(
+                            "\n- [{}] (LOCKED) {}",
+                            beat.beat_type, beat.content
+                        ));
+                    } else {
+                        current.push_str(&format!("\n- [{}] {}", beat.beat_type, beat.content));
+                    }
+                }
+                parts.push(current);
+            }
+            parts.push(format!(
+                "Writer's edit instruction: {}\n\nRegenerate this scene now: an updated summary and a revised beat list, one beat per line with its type, keeping locked beats exactly as they are.",
+                context.instruction
+            ));
+        }
+        _ => {
+            parts.push(format!(
+                "Writer's edit instruction: {}\n\nRegenerate the story plan now: logline, synopsis, and a scene-by-scene outline.",
+                context.instruction
+            ));
+        }
+    }
+
+    Ok(parts.join("\n\n"))
+}
+
+#[tauri::command]
+pub fn storyplan_regenerate(request: StoryRegenerateRequest) -> CommandResult<StoryRegenerateResponse> {
+    let connection = open_project_database(&request.project_path)?;
+    let target_kind = request.target_kind.trim().to_lowercase();
+
+    let instruction = request.instruction.trim().to_string();
+    if instruction.is_empty() {
+        return Err("Give the regeneration an edit instruction — that is what makes it converge.".to_string());
+    }
+    let candidate_count = request.candidate_count.unwrap_or(3).clamp(1, MAX_CANDIDATES);
+
+    // Privacy gate: regeneration sends plan + Vault content to the provider,
+    // so cloud targets need the same disclosure + key checks as Co-Writer.
+    crate::commands::ai::ensure_cloud_provider_ready(&connection, request.provider)?;
+
+    let context =
+        resolve_regeneration_context(&connection, &target_kind, &request.target_id, &instruction)?;
+    let system_prompt = crate::storyplan_context::regeneration_system_prompt(&context);
+    let user_prompt =
+        build_regeneration_user_prompt(&connection, &request, &target_kind, &context)?;
+    let prompt_summary = truncate_prompt_summary(&format!(
+        "regenerate {target_kind}: {instruction}"
+    ));
+
+    let scan_wards = request.scan_wards.unwrap_or(true);
+    let mut candidates: Vec<StoryRegenerateCandidate> = Vec::new();
+
+    for index in 0..candidate_count {
+        let generation = crate::ai::AiGenerationRequest {
+            project_path: request.project_path.clone(),
+            provider: request.provider,
+            model: request.model.clone(),
+            system_prompt: system_prompt.clone(),
+            user_prompt: user_prompt.clone(),
+            temperature: temperature_for_candidate(index, candidate_count),
+            max_tokens: max_tokens_for_target(&target_kind, request.provider),
+        };
+        // Each candidate is stored as soon as it arrives so a failure on a
+        // later call never discards earlier variants.
+        let response = crate::llm::generate_story_text(&connection, &generation)?;
+        if crate::llm::stopped_by_token_limit(response.stop_reason.as_deref()) {
+            return Err(format!(
+                "{target_kind} candidate {}/{} reached the output token limit; no partial candidate was stored. Increase the provider output budget and retry.",
+                index + 1,
+                candidate_count
+            ));
+        }
+        let candidate_id = insert_candidate(
+            &connection,
+            &NewCandidate {
+                target_kind: &target_kind,
+                target_id: &request.target_id,
+                provider: request.provider.as_key(),
+                model: &request.model,
+                prompt_summary: Some(&prompt_summary),
+                candidate_index: index,
+                content: &response.text,
+            },
+        )?;
+        let candidate = read_candidate(&connection, &candidate_id)?;
+        let ward_scan = if scan_wards {
+            crate::db::scan_wards_internal(&connection, &response.text)?
+        } else {
+            crate::models::WardScanResponse {
+                hits: Vec::new(),
+                has_blocking_hits: false,
+            }
+        };
+        candidates.push(StoryRegenerateCandidate {
+            candidate,
+            ward_scan,
+        });
+    }
+
+    Ok(StoryRegenerateResponse {
+        provider: request.provider,
+        model: request.model.clone(),
+        context,
+        candidates,
+    })
 }
 
 #[cfg(test)]
@@ -1032,5 +1316,152 @@ mod tests {
     fn validate_beat_type_rejects_unknown() {
         assert!(validate_beat_type("action").is_ok());
         assert!(validate_beat_type("montage").is_err());
+    }
+
+    #[test]
+    fn temperature_spread_covers_conservative_to_loose() {
+        assert_eq!(temperature_for_candidate(0, 3), 0.4);
+        assert_eq!(temperature_for_candidate(2, 3), 1.0);
+        // Middle candidate sits between the extremes.
+        assert_eq!(temperature_for_candidate(1, 3), 0.7);
+        // Single-candidate runs use the neutral default.
+        assert_eq!(temperature_for_candidate(0, 1), 0.7);
+    }
+
+    #[test]
+    fn prompt_summary_truncates_long_instructions() {
+        let long = format!("regenerate scene: {}", "x".repeat(500));
+        let truncated = truncate_prompt_summary(&long);
+        assert!(truncated.chars().count() <= PROMPT_SUMMARY_MAX_CHARS + 1);
+        assert!(truncated.ends_with('…'));
+        assert_eq!(truncate_prompt_summary("short note"), "short note");
+    }
+
+    #[test]
+    fn resolve_context_rejects_unknown_target_kind() {
+        let conn = test_db();
+        let result = resolve_regeneration_context(&conn, "chapter", "item_1", "x");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn resolve_context_anchors_beat_targets_on_owning_scene() {
+        let conn = test_db();
+        insert_plan(&conn, "plan_1");
+        insert_scene(&conn, "scene_1", "plan_1");
+        insert_beat(&conn, "beat_1", "scene_1", 0);
+
+        let context = resolve_regeneration_context(&conn, "beat", "beat_1", "sharpen").unwrap();
+        let scene = context.scene.expect("beat targets must resolve to their scene");
+        assert_eq!(scene.id, "scene_1");
+    }
+
+    #[test]
+    fn regenerate_prompt_rejects_locked_beat_target() {
+        let conn = test_db();
+        insert_plan(&conn, "plan_1");
+        insert_scene(&conn, "scene_1", "plan_1");
+        insert_beat(&conn, "beat_locked", "scene_1", 1);
+
+        let request = StoryRegenerateRequest {
+            project_path: "/tmp/unused.grimoire".to_string(),
+            target_kind: "beat".to_string(),
+            target_id: "beat_locked".to_string(),
+            instruction: "rewrite it".to_string(),
+            provider: crate::ai::AiProviderKind::Ollama,
+            model: "llama3.2".to_string(),
+            candidate_count: Some(1),
+            scan_wards: None,
+        };
+        let context = resolve_regeneration_context(&conn, "beat", "beat_locked", "rewrite it").unwrap();
+        let result = build_regeneration_user_prompt(&conn, &request, "beat", &context);
+        assert!(result.is_err(), "locked beats must refuse regeneration");
+        assert!(result.unwrap_err().contains("pinned"));
+    }
+
+    #[test]
+    fn regenerate_prompt_requires_linked_item_for_script_target() {
+        let conn = test_db();
+        insert_plan(&conn, "plan_1");
+        insert_scene(&conn, "scene_1", "plan_1");
+
+        let request = StoryRegenerateRequest {
+            project_path: "/tmp/unused.grimoire".to_string(),
+            target_kind: "script".to_string(),
+            target_id: "scene_1".to_string(),
+            instruction: "make it bleed".to_string(),
+            provider: crate::ai::AiProviderKind::Ollama,
+            model: "llama3.2".to_string(),
+            candidate_count: Some(1),
+            scan_wards: None,
+        };
+        let context = resolve_regeneration_context(&conn, "script", "scene_1", "make it bleed").unwrap();
+        let result = build_regeneration_user_prompt(&conn, &request, "script", &context);
+        assert!(result.is_err(), "script targets need a linked manuscript item");
+        assert!(result.unwrap_err().contains("Link this scene"));
+    }
+
+    #[test]
+    fn regenerate_prompt_carries_locked_beats_and_instruction() {
+        let conn = test_db();
+        insert_plan(&conn, "plan_1");
+        insert_scene(&conn, "scene_1", "plan_1");
+        insert_beat(&conn, "beat_locked", "scene_1", 1);
+        insert_beat(&conn, "beat_free", "scene_1", 0);
+
+        let request = StoryRegenerateRequest {
+            project_path: "/tmp/unused.grimoire".to_string(),
+            target_kind: "scene".to_string(),
+            target_id: "scene_1".to_string(),
+            instruction: "cold open".to_string(),
+            provider: crate::ai::AiProviderKind::Ollama,
+            model: "llama3.2".to_string(),
+            candidate_count: Some(3),
+            scan_wards: None,
+        };
+        let context = resolve_regeneration_context(&conn, "scene", "scene_1", "cold open").unwrap();
+        let prompt = build_regeneration_user_prompt(&conn, &request, "scene", &context).unwrap();
+
+        assert!(prompt.contains("cold open"));
+        assert!(prompt.contains("Locked beats"));
+        assert!(prompt.contains("Something happens"));
+    }
+
+    #[test]
+    fn scene_regeneration_prompt_includes_current_beats() {
+        let conn = test_db();
+        insert_plan(&conn, "plan_1");
+        insert_scene(&conn, "scene_1", "plan_1");
+        conn.execute(
+            "INSERT INTO story_beats (id, scene_id, beat_type, content, locked, sort_order, created_at, updated_at) VALUES ('beat_dialogue', 'scene_1', 'dialogue', 'You knew about the ledger.', 0, 0, '1', '1')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO story_beats (id, scene_id, beat_type, content, locked, sort_order, created_at, updated_at) VALUES ('beat_anchor', 'scene_1', 'action', 'Mara slides the ledger across.', 1, 1, '1', '1')",
+            [],
+        )
+        .unwrap();
+
+        let request = StoryRegenerateRequest {
+            project_path: "/tmp/unused.grimoire".to_string(),
+            target_kind: "scene".to_string(),
+            target_id: "scene_1".to_string(),
+            instruction: "tighten the dialogue".to_string(),
+            provider: crate::ai::AiProviderKind::Ollama,
+            model: "llama3.2".to_string(),
+            candidate_count: Some(1),
+            scan_wards: None,
+        };
+        let context =
+            resolve_regeneration_context(&conn, "scene", "scene_1", "tighten the dialogue").unwrap();
+        let prompt = build_regeneration_user_prompt(&conn, &request, "scene", &context).unwrap();
+
+        // The model must see the current beats to revise them (Codex catch).
+        assert!(prompt.contains("You knew about the ledger."));
+        assert!(prompt.contains("Mara slides the ledger across."));
+        // Locked beats are flagged immutable inside the current-beats section.
+        assert!(prompt.contains("(LOCKED) Mara slides the ledger across."));
+        assert!(prompt.contains("tighten the dialogue"));
     }
 }

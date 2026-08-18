@@ -176,22 +176,7 @@ pub fn ai_chat(request: AiChatRequest) -> CommandResult<AiChatResponse> {
 
 pub fn ai_chat_inner(request: AiChatRequest) -> CommandResult<AiChatResponse> {
     let connection = open_project_database(&request.project_path)?;
-    if cloud_provider(&request.provider) {
-        let settings = provider_settings(&connection, request.provider)?;
-        if settings.disclosure_accepted_at.is_none() {
-            return Err(
-                "Accept the cloud model disclosure before sending Vault context to this provider."
-                    .to_string(),
-            );
-        }
-        if !settings.api_key_present {
-            return Err(
-                "Add an API key for this cloud provider before sending a Co-Writer request."
-                    .to_string(),
-            );
-        }
-    }
-
+    ensure_cloud_provider_ready(&connection, request.provider)?;
     match request.provider {
         AiProviderKind::Ollama => llm::chat_ollama(&request),
         AiProviderKind::OpenAi | AiProviderKind::OpenAiCompatible => {
@@ -200,6 +185,32 @@ pub fn ai_chat_inner(request: AiChatRequest) -> CommandResult<AiChatResponse> {
         AiProviderKind::Anthropic => llm::chat_anthropic(&connection, &request),
         AiProviderKind::GoogleAiStudio => llm::chat_google(&connection, &request),
     }
+}
+
+/// Shared privacy gate for any request that sends Vault or Story Plan content
+/// to a cloud provider: the disclosure must be accepted and an API key present.
+/// Used by both Co-Writer chat and Story Plan regeneration so the two paths
+/// cannot drift apart.
+pub fn ensure_cloud_provider_ready(
+    connection: &Connection,
+    provider: AiProviderKind,
+) -> CommandResult<()> {
+    if !cloud_provider(&provider) {
+        return Ok(());
+    }
+    let settings = provider_settings(connection, provider)?;
+    if settings.disclosure_accepted_at.is_none() {
+        return Err(
+            "Accept the cloud model disclosure before sending Vault context to this provider."
+                .to_string(),
+        );
+    }
+    if !settings.api_key_present {
+        return Err(
+            "Add an API key for this cloud provider before sending a Co-Writer request.".to_string(),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]

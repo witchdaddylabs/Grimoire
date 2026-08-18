@@ -609,6 +609,47 @@ pub struct StoryCandidateResolveRequest {
     pub resolution: String,
 }
 
+// Story Plan regeneration (Sprint 3 — Fabula-style convergent iteration)
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryRegenerateRequest {
+    pub project_path: String,
+    /// "plan", "scene", "beat", or "script"
+    pub target_kind: String,
+    /// Id of the plan/scene/beat being regenerated. For beat targets the
+    /// owning scene supplies the surrounding context.
+    pub target_id: String,
+    /// The writer's edit instruction (point 6 of the context assembly).
+    pub instruction: String,
+    pub provider: AiProviderKind,
+    pub model: String,
+    /// How many candidate variants to generate. Defaults to 3.
+    pub candidate_count: Option<i64>,
+    /// Scan each candidate against the project's wards before presenting.
+    pub scan_wards: Option<bool>,
+}
+
+/// One generated variant plus the context it was built from, so the UI can
+/// show ward hits and let the writer see exactly what anchored the rewrite.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryRegenerateCandidate {
+    #[serde(flatten)]
+    pub candidate: StoryCandidate,
+    pub ward_scan: WardScanResponse,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryRegenerateResponse {
+    pub provider: AiProviderKind,
+    pub model: String,
+    /// The assembled context, echoed for transparency and debugging.
+    pub context: crate::storyplan_context::RegenerationContext,
+    pub candidates: Vec<StoryRegenerateCandidate>,
+}
+
 // Note: AI provider types (AiProviderKind, AiProviderSettings, etc.) are in ai/mod.rs
 // and imported at the top of main.rs. Do not duplicate them here.
 // The OllamaModel From<AiModelInfo> impl is also in ai/mod.rs to avoid circular deps.

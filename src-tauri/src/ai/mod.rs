@@ -116,6 +116,25 @@ pub struct AiChatRequest {
     pub grounded_context: String,
 }
 
+/// Structured generation request for the Story Plan regeneration pipeline.
+/// Unlike `AiChatRequest`, the system prompt and sampling temperature are
+/// explicit — the candidate loop needs varied temperatures, and regeneration
+/// must carry locked-beat constraints in the system prompt.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiGenerationRequest {
+    pub project_path: String,
+    pub provider: AiProviderKind,
+    pub model: String,
+    pub system_prompt: String,
+    pub user_prompt: String,
+    /// Sampling temperature; providers clamp it to their supported range.
+    pub temperature: f64,
+    /// Output cap in tokens. Only enforced where the provider requires it
+    /// (Anthropic); other providers use their own defaults.
+    pub max_tokens: u32,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiChatResponse {
@@ -125,6 +144,10 @@ pub struct AiChatResponse {
     pub request_id: Option<String>,
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
+    /// Provider stop reason ("end_turn", "stop", "max_tokens", "length",
+    /// "MAX_TOKENS", ...). Lets callers detect output truncated by the token
+    /// cap instead of storing half a scene as a complete candidate.
+    pub stop_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

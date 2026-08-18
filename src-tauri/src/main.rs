@@ -9,6 +9,7 @@ mod helpers;
 mod llm;
 mod models;
 mod settings;
+mod storyplan_context;
 
 use commands::{
     ai as ai_cmds,
@@ -77,6 +78,7 @@ fn main() {
             storyplan_cmds::storyplan_candidate_store,
             storyplan_cmds::storyplan_candidate_list,
             storyplan_cmds::storyplan_candidate_resolve,
+            storyplan_cmds::storyplan_regenerate,
             external_vault_parse,
         ])
         .run(tauri::generate_context!())
