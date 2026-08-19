@@ -28,7 +28,7 @@ Three commitments define it:
 
 1. **The writer pins what matters.** Any beat can be locked. Locked beats are hard constraints in the prompt and cannot be regenerated directly. Structure is the writer's to protect, not the model's to renegotiate.
 
-2. **Revision is convergent, not stochastic.** Every regeneration carries an edit instruction plus a fixed six-point context — logline and synopsis, Vault character facts, the adjacent scene anchors on both sides, locked beats, and the current material. The model revises what exists; it does not start over.
+2. **Revision is convergent, not stochastic.** Every regeneration carries an edit instruction plus the context appropriate to the layer being revised. Scene and beat targets get six points — logline and synopsis, Vault character facts, the adjacent scene anchors on both sides, locked beats, the current material, and the instruction. Plan targets get the full scene-by-scene outline plus every locked beat in the plan, scoped to its owning scene; adjacent anchors and per-character facts don't apply when the outline itself is what's under revision. Either way the model revises what exists; it does not start over.
 
 3. **Nothing lands without a decision.** Variants are generated, ward-scanned, and stored as candidates. The writer compares and accepts. A candidate carrying a blocking ward cannot be accepted. Rejected candidates are retained as history.
 

@@ -106,16 +106,20 @@ Any beat can be **pinned**. Pinned beats are treated as fixed points — the mod
 
 ### Convergent iteration, not reroll roulette
 
-When you regenerate a layer, you give it an **edit instruction** — "tighten the dialogue", "raise the tension", "cut the fat". Grimoire then assembles a six-point context so the model revises rather than reinvents:
+When you regenerate a layer, you give it an **edit instruction** — "tighten the dialogue", "raise the tension", "cut the fat". Grimoire then assembles the surrounding context so the model revises rather than reinvents.
+
+Regenerating a **scene or beat** sends six points:
 
 1. Your logline and synopsis
 2. Character facts pulled from your Vault
 3. The final beat of the previous scene
 4. The opening beat of the next scene
-5. Every pinned beat, as hard constraints
+5. Every pinned beat in that scene, as hard constraints
 6. Your edit instruction
 
-The current material goes in too, so "tighten the dialogue" has actual dialogue to tighten.
+The scene's current beats go in too, so "tighten the dialogue" has actual dialogue to tighten.
+
+Regenerating the **whole plan** is a different job, so it gets a different context: your logline and synopsis, the complete scene-by-scene outline, and every pinned beat across the plan — each labelled with the scene that owns it. Adjacent-scene anchors and per-character Vault facts don't apply at this level, because the plan *is* the thing being restructured. Pinned beats still hold.
 
 ### Compare before you commit
 
@@ -203,7 +207,7 @@ grimoire/
 │   └── src/
 │       ├── main.rs             # Tauri command registration
 │       ├── commands/           # Command modules (storyplan, vault, wards, …)
-│       ├── storyplan_context.rs # Six-point regeneration context assembler
+│       ├── storyplan_context.rs # Regeneration context assembler (per-layer)
 │       ├── llm.rs              # Provider generation layer
 │       ├── db.rs               # SQLite/project persistence
 │       ├── models.rs           # Shared type contracts
@@ -224,7 +228,7 @@ Grimoire runs on both **macOS and Windows**, and ships as unsigned community ins
 - Frontend/backend module split
 - Grimoire Vault decoupling, manual hierarchy creation, JSON export, and read-only external YAML browsing
 - Cross-platform credential storage (`keyring`), Windows icon + NSIS installer, and a `windows-latest` CI/release pipeline
-- **Story Plan layer** — Plan→Scenes→Beats structural editor, beat pinning, six-point regeneration context, multi-variant generation with ward scanning, and an accept/reject flow that writes back to the plan
+- **Story Plan layer** — Plan→Scenes→Beats structural editor, beat pinning, layer-aware regeneration context, multi-variant generation with ward scanning, and an accept/reject flow that writes back to the plan
 
 See the [GitHub Issues](https://github.com/witchdaddylabs/grimoire/issues) for current work items.
 
