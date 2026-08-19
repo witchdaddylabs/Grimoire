@@ -140,9 +140,7 @@ fn scene_character_names(connection: &Connection, scene_id: &str) -> CommandResu
         .prepare("SELECT characters FROM story_beats WHERE scene_id = ?1")
         .map_err(|error| format!("Could not read story beats: {error}"))?;
     let rows = statement
-        .query_map(params![scene_id], |row| {
-            row.get::<_, Option<String>>(0)
-        })
+        .query_map(params![scene_id], |row| row.get::<_, Option<String>>(0))
         .map_err(|error| format!("Could not read story beats: {error}"))?;
 
     let mut names: Vec<String> = Vec::new();
@@ -152,7 +150,11 @@ fn scene_character_names(connection: &Connection, scene_id: &str) -> CommandResu
             if let Ok(parsed) = serde_json::from_str::<Vec<String>>(&json) {
                 for name in parsed {
                     let trimmed = name.trim().to_string();
-                    if !trimmed.is_empty() && !names.iter().any(|existing| existing.eq_ignore_ascii_case(&trimmed)) {
+                    if !trimmed.is_empty()
+                        && !names
+                            .iter()
+                            .any(|existing| existing.eq_ignore_ascii_case(&trimmed))
+                    {
                         names.push(trimmed);
                     }
                 }
@@ -179,14 +181,16 @@ fn retrieve_character_facts(
             crate::db::search_character_chunks_internal(connection, name, CHARACTER_FACT_LIMIT)?;
         let mut taken_for_character = 0i64;
         for result in results {
-            if taken_for_character >= CHARACTER_FACT_LIMIT || facts.len() >= CHARACTER_FACT_TOTAL_CAP {
+            if taken_for_character >= CHARACTER_FACT_LIMIT
+                || facts.len() >= CHARACTER_FACT_TOTAL_CAP
+            {
                 break;
             }
             // Skip facts that duplicate an already-captured source chunk.
-            if facts
-                .iter()
-                .any(|existing| existing.source_title == result.title && existing.snippet == truncate_snippet(&result.snippet))
-            {
+            if facts.iter().any(|existing| {
+                existing.source_title == result.title
+                    && existing.snippet == truncate_snippet(&result.snippet)
+            }) {
                 continue;
             }
             facts.push(character_fact_from_search(name, result));
@@ -287,7 +291,11 @@ fn beat_anchor_for(
 }
 
 /// All locked beats inside the target scene, in story order.
-fn locked_beats_for(connection: &Connection, scene_id: &str, scene_title: &str) -> CommandResult<Vec<BeatAnchor>> {
+fn locked_beats_for(
+    connection: &Connection,
+    scene_id: &str,
+    scene_title: &str,
+) -> CommandResult<Vec<BeatAnchor>> {
     let mut statement = connection
         .prepare(
             r#"
@@ -415,10 +423,18 @@ pub fn render_context_prompt(context: &RegenerationContext) -> String {
     let mut sections: Vec<String> = Vec::new();
 
     sections.push(format!("Story plan: {}", context.plan_name));
-    if let Some(logline) = context.logline.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(logline) = context
+        .logline
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         sections.push(format!("Logline:\n{logline}"));
     }
-    if let Some(synopsis) = context.synopsis.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(synopsis) = context
+        .synopsis
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         sections.push(format!("Synopsis:\n{synopsis}"));
     }
 
@@ -468,10 +484,18 @@ pub fn render_context_prompt(context: &RegenerationContext) -> String {
 
     if let Some(scene) = &context.scene {
         let mut scene_section = format!("Scene to regenerate: \"{}\"", scene.title);
-        if let Some(setting) = scene.setting.as_deref().filter(|value| !value.trim().is_empty()) {
+        if let Some(setting) = scene
+            .setting
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
             scene_section.push_str(&format!("\nSetting: {setting}"));
         }
-        if let Some(summary) = scene.summary.as_deref().filter(|value| !value.trim().is_empty()) {
+        if let Some(summary) = scene
+            .summary
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
             scene_section.push_str(&format!("\nCurrent summary: {summary}"));
         }
         sections.push(scene_section);
@@ -525,7 +549,12 @@ mod tests {
         conn
     }
 
-    fn insert_plan_with(conn: &Connection, plan_id: &str, logline: Option<&str>, synopsis: Option<&str>) {
+    fn insert_plan_with(
+        conn: &Connection,
+        plan_id: &str,
+        logline: Option<&str>,
+        synopsis: Option<&str>,
+    ) {
         conn.execute(
             "INSERT INTO story_plans (id, project_name, logline, synopsis, status, created_at, updated_at) VALUES (?1, 'Eleven Grey Street', ?2, ?3, 'drafting', '1', '1')",
             params![plan_id, logline, synopsis],
@@ -623,7 +652,16 @@ mod tests {
         insert_scene_with(&conn, "scene_c", "plan_1", "The Drop", 2, None, None);
 
         // Previous scene ends on a revelation; next scene opens on action.
-        insert_beat_with(&conn, "beat_a1", "scene_a", "revelation", "The ledger lists Mara herself.", None, 0, 0);
+        insert_beat_with(
+            &conn,
+            "beat_a1",
+            "scene_a",
+            "revelation",
+            "The ledger lists Mara herself.",
+            None,
+            0,
+            0,
+        );
         // Target scene: locked beat + character roster.
         insert_beat_with(
             &conn,
@@ -645,9 +683,19 @@ mod tests {
             1,
             1,
         );
-        insert_beat_with(&conn, "beat_c1", "scene_c", "action", "Jonah waits by the canal.", None, 0, 0);
+        insert_beat_with(
+            &conn,
+            "beat_c1",
+            "scene_c",
+            "action",
+            "Jonah waits by the canal.",
+            None,
+            0,
+            0,
+        );
 
-        let context = assemble_scene_context(&conn, "scene_b", "make the confrontation colder").unwrap();
+        let context =
+            assemble_scene_context(&conn, "scene_b", "make the confrontation colder").unwrap();
 
         // Points 1-2: plan identity.
         assert_eq!(context.plan_name, "Eleven Grey Street");
@@ -662,7 +710,9 @@ mod tests {
         assert!(next.content.contains("canal"));
         // Point 5: locked beats only — the unlocked dialogue beat must not appear.
         assert_eq!(context.locked_beats.len(), 1);
-        assert!(context.locked_beats[0].content.contains("slides the ledger"));
+        assert!(context.locked_beats[0]
+            .content
+            .contains("slides the ledger"));
         // Point 6: instruction echoed.
         assert_eq!(context.instruction, "make the confrontation colder");
         // Scene metadata carried through.
@@ -676,8 +726,26 @@ mod tests {
         let conn = test_db();
         insert_plan_with(&conn, "plan_1", None, None);
         insert_scene_with(&conn, "scene_1", "plan_1", "Only Scene", 0, None, None);
-        insert_beat_with(&conn, "beat_locked", "scene_1", "revelation", "The vault was empty all along.", None, 1, 0);
-        insert_beat_with(&conn, "beat_free", "scene_1", "action", "Someone knocks twice.", None, 0, 1);
+        insert_beat_with(
+            &conn,
+            "beat_locked",
+            "scene_1",
+            "revelation",
+            "The vault was empty all along.",
+            None,
+            1,
+            0,
+        );
+        insert_beat_with(
+            &conn,
+            "beat_free",
+            "scene_1",
+            "action",
+            "Someone knocks twice.",
+            None,
+            0,
+            1,
+        );
 
         let context = assemble_scene_context(&conn, "scene_1", "tighten").unwrap();
         let prompt = render_context_prompt(&context);
@@ -694,7 +762,16 @@ mod tests {
         let conn = test_db();
         insert_plan_with(&conn, "plan_1", None, None);
         insert_scene_with(&conn, "scene_1", "plan_1", "Mara Scene", 0, None, None);
-        insert_beat_with(&conn, "beat_1", "scene_1", "action", "Mara counts the cash.", Some(r#"["Mara"]"#), 0, 0);
+        insert_beat_with(
+            &conn,
+            "beat_1",
+            "scene_1",
+            "action",
+            "Mara counts the cash.",
+            Some(r#"["Mara"]"#),
+            0,
+            0,
+        );
         seed_fts_character_fact(
             &conn,
             "char_mara",
@@ -706,7 +783,9 @@ mod tests {
         assert_eq!(context.character_facts.len(), 1);
         assert_eq!(context.character_facts[0].character, "Mara");
         assert_eq!(context.character_facts[0].source_title, "Mara Voss");
-        assert!(context.character_facts[0].snippet.contains("collects debts"));
+        assert!(context.character_facts[0]
+            .snippet
+            .contains("collects debts"));
     }
 
     #[test]
@@ -714,8 +793,26 @@ mod tests {
         let conn = test_db();
         insert_plan_with(&conn, "plan_1", None, None);
         insert_scene_with(&conn, "scene_1", "plan_1", "Scene", 0, None, None);
-        insert_beat_with(&conn, "beat_1", "scene_1", "dialogue", "a", Some(r#"["Mara"]"#), 0, 0);
-        insert_beat_with(&conn, "beat_2", "scene_1", "dialogue", "b", Some(r#"["mara","Jonah"]"#), 0, 1);
+        insert_beat_with(
+            &conn,
+            "beat_1",
+            "scene_1",
+            "dialogue",
+            "a",
+            Some(r#"["Mara"]"#),
+            0,
+            0,
+        );
+        insert_beat_with(
+            &conn,
+            "beat_2",
+            "scene_1",
+            "dialogue",
+            "b",
+            Some(r#"["mara","Jonah"]"#),
+            0,
+            1,
+        );
 
         let names = scene_character_names(&conn, "scene_1").unwrap();
         assert_eq!(names, vec!["Mara".to_string(), "Jonah".to_string()]);
@@ -759,7 +856,8 @@ mod tests {
         let context = assemble_scene_context(&conn, "scene_1", "x").unwrap();
         assert!(!regeneration_system_prompt(&context).contains("warded"));
 
-        conn.execute("UPDATE story_beats SET locked = 1 WHERE id = 'beat_1'", []).unwrap();
+        conn.execute("UPDATE story_beats SET locked = 1 WHERE id = 'beat_1'", [])
+            .unwrap();
         let locked_context = assemble_scene_context(&conn, "scene_1", "x").unwrap();
         assert!(regeneration_system_prompt(&locked_context).contains("warded"));
     }
@@ -775,15 +873,44 @@ mod tests {
     fn plan_context_collects_outline_and_locked_beats_across_scenes() {
         let conn = test_db();
         insert_plan_with(&conn, "plan_1", Some("logline"), None);
-        insert_scene_with(&conn, "scene_1", "plan_1", "Opening", 0, None, Some("Mara arrives."));
+        insert_scene_with(
+            &conn,
+            "scene_1",
+            "plan_1",
+            "Opening",
+            0,
+            None,
+            Some("Mara arrives."),
+        );
         insert_scene_with(&conn, "scene_2", "plan_1", "Confrontation", 1, None, None);
-        insert_beat_with(&conn, "beat_1", "scene_1", "revelation", "The ledger burns.", None, 1, 0);
-        insert_beat_with(&conn, "beat_2", "scene_2", "action", "A free beat.", None, 0, 0);
+        insert_beat_with(
+            &conn,
+            "beat_1",
+            "scene_1",
+            "revelation",
+            "The ledger burns.",
+            None,
+            1,
+            0,
+        );
+        insert_beat_with(
+            &conn,
+            "beat_2",
+            "scene_2",
+            "action",
+            "A free beat.",
+            None,
+            0,
+            0,
+        );
 
         let context = assemble_plan_context(&conn, "plan_1", "restructure act two").unwrap();
         assert_eq!(context.scene_outline.len(), 2);
         assert_eq!(context.scene_outline[0].title, "Opening");
-        assert_eq!(context.scene_outline[0].summary.as_deref(), Some("Mara arrives."));
+        assert_eq!(
+            context.scene_outline[0].summary.as_deref(),
+            Some("Mara arrives.")
+        );
         // Only the locked beat rides along as a constraint.
         assert_eq!(context.locked_beats.len(), 1);
         assert!(context.locked_beats[0].content.contains("ledger burns"));

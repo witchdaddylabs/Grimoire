@@ -11,6 +11,8 @@
 
 **Grimoire Vault** — A spatial memory system for lore, characters, canon, and world-building. Organised as Wings → Halls → Rooms → Drawers → Items. Stored inside your project — no external dependencies, no random folders on your disk.
 
+**Story Plan** — A structural layer that keeps your outline and your prose aligned. Pin the beats that are working, regenerate the ones that aren't, and compare variants before anything touches your draft.
+
 **Co-Writer** — An AI assistant that queries your Vault before answering. Shows citations with source paths so you can verify every claim.
 
 **Wards** — Anti-slop guardrails. Banned words, cliché detection, voice drift monitoring. Keep your prose clean.
@@ -86,6 +88,49 @@ The Vault is stored entirely within your project folder. It does not install to 
 
 For users who also keep compatible external YAML knowledge stores, Grimoire can optionally connect to browse them read-only. This is separate from your project's own Vault and is entirely opt-in.
 
+## Story Plan — structure that stays aligned
+
+Most AI writing tools generate content. Grimoire's Story Plan does something different: it holds your **structure** steady while you revise, so the outline and the prose don't drift apart.
+
+A Story Plan sits between you and the model:
+
+```
+Plan          (logline, synopsis, status)
+└── Scenes    (title, setting, summary, optional link to a Canvas item)
+    └── Beats (what happens — action, dialogue, revelation, conflict, transition)
+```
+
+### Pin what's working
+
+Any beat can be **pinned**. Pinned beats are treated as fixed points — the model is told explicitly not to change them, and Grimoire refuses to regenerate a pinned beat directly. This is the difference between "rewrite this scene" and "rewrite this scene *without breaking the bit I already love*".
+
+### Convergent iteration, not reroll roulette
+
+When you regenerate a layer, you give it an **edit instruction** — "tighten the dialogue", "raise the tension", "cut the fat". Grimoire then assembles the surrounding context so the model revises rather than reinvents.
+
+Regenerating a **scene or beat** sends six points:
+
+1. Your logline and synopsis
+2. Character facts pulled from your Vault
+3. The final beat of the previous scene
+4. The opening beat of the next scene
+5. Every pinned beat in that scene, as hard constraints
+6. Your edit instruction
+
+The scene's current beats go in too, so "tighten the dialogue" has actual dialogue to tighten. When you regenerate a single beat, its siblings go in as read-only context — the model can see what comes either side of it, but only the targeted beat is returned.
+
+Regenerating the **whole plan** is a different job, so it gets a different context: your logline and synopsis, the complete scene-by-scene outline, and every pinned beat across the plan — each labelled with the scene that owns it. Adjacent-scene anchors and per-character Vault facts don't apply at this level, because the plan *is* the thing being restructured. Pinned beats still hold.
+
+### Compare before you commit
+
+Each run produces up to five variants at a spread of temperatures — the first conservative, the last loosest. Nothing is applied automatically. Variants are scanned against your Wards by default, and a variant with a blocking ward can't be accepted until you deal with it. You can turn scanning off for a run if you'd rather move fast — those variants are labelled **"Wards not run"** rather than clean, so an unchecked variant is never mistaken for a passed one. You read them, pick one, and only then does your plan change.
+
+Accepting a variant writes it back to the layer you targeted — plan synopsis, scene summary, or beat content. If the scene is linked to a Canvas item, Grimoire offers to take you there. Rejected variants stay in a history drawer, so nothing is lost.
+
+### Positioning
+
+Story Plan is a **structural editor**, not a content generator. It assumes you're writing the book — it just refuses to let the scaffolding rot while you do. Everything runs through your chosen provider (local Ollama or your own cloud key), and nothing leaves your machine without the same explicit consent the Co-Writer requires.
+
 ## Co-Writer
 
 The Co-Writer uses a local or cloud AI model to help with your writing. Before answering, it:
@@ -145,35 +190,45 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines and PR workflo
 
 ```
 grimoire/
-├── src/                    # Frontend (React + TypeScript)
-│   └── app/
-│       ├── App.tsx         # Main app shell
-│       ├── ai.ts           # AI provider integration
-│       ├── vault.ts        # Vault data layer
-│       └── project.ts      # Project open/create
-├── src-tauri/              # Backend (Rust)
+├── src/                        # Frontend (React + TypeScript)
+│   ├── app/
+│   │   ├── App.tsx             # Main app shell
+│   │   ├── ai.ts               # AI provider integration
+│   │   ├── vault.ts            # Vault data layer
+│   │   ├── storyplan.ts        # Story Plan data layer
+│   │   └── project.ts          # Project open/create
+│   └── features/
+│       ├── storyplan/          # Plan editor, regeneration, candidate review
+│       ├── cowriter/           # Co-Writer panel + hook
+│       ├── vault/              # Vault tree
+│       ├── wards/              # Ward management
+│       └── settings/           # Provider settings
+├── src-tauri/                  # Backend (Rust)
 │   └── src/
-│       ├── main.rs         # Tauri command registration
-│       ├── db.rs           # SQLite/project persistence
-│       ├── models.rs       # Shared type contracts
-│       └── external_vault.rs # Read-only external YAML browsing
-├── docs/                   # Technical documentation
-├── DESIGN.md               # Design system spec (tokens, principles, anti-references)
-├── PRODUCT.md              # Product definition
-├── PRIVACY.md              # Privacy policy
-├── SECURITY.md             # Security boundaries
-└── CONTRIBUTING.md         # Development guidelines
+│       ├── main.rs             # Tauri command registration
+│       ├── commands/           # Command modules (storyplan, vault, wards, …)
+│       ├── storyplan_context.rs # Regeneration context assembler (per-layer)
+│       ├── llm.rs              # Provider generation layer
+│       ├── db.rs               # SQLite/project persistence
+│       ├── models.rs           # Shared type contracts
+│       └── external_vault.rs   # Read-only external YAML browsing
+├── docs/                       # Technical documentation
+├── DESIGN.md                   # Design system spec (tokens, principles, anti-references)
+├── PRODUCT.md                  # Product definition
+├── PRIVACY.md                  # Privacy policy
+├── SECURITY.md                 # Security boundaries
+└── CONTRIBUTING.md             # Development guidelines
 ```
 
 ## Status
 
-Grimoire is **pre-1.0** software. The current build compiles and runs on both **macOS and Windows**, and ships as unsigned community installers (macOS DMG + Windows NSIS `.exe`). Completed foundations include:
+Grimoire runs on both **macOS and Windows**, and ships as unsigned community installers (macOS DMG + Windows NSIS `.exe`). Completed foundations include:
 
 - Project open/create workflow replacing hardcoded demo startup
 - Frontend/backend module split
 - Grimoire Vault decoupling, manual hierarchy creation, JSON export, and read-only external YAML browsing
-- Sprint 4 packaging work: bundle identifier, app version, DMG workflow, and release documentation
-- Sprint 6 cross-platform build: cross-platform credential storage (`keyring`), Windows icon + NSIS installer, and a `windows-latest` CI/release pipeline
+- Cross-platform credential storage (`keyring`), Windows icon + NSIS installer, and a `windows-latest` CI/release pipeline
+- **Story Plan layer** — Plan→Scenes→Beats structural editor, beat pinning, layer-aware regeneration context, multi-variant generation with ward scanning, and an accept/reject flow that writes back to the plan
 
 See the [GitHub Issues](https://github.com/witchdaddylabs/grimoire/issues) for current work items.
 

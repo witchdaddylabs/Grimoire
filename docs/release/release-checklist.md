@@ -1,6 +1,6 @@
 # Release Checklist
 
-> _Scoped to the macOS unsigned-DMG release path. The Windows release path (NSIS `.exe`) is tracked in [get-it-working-plan](../get-it-working-plan.md)._
+> _Scoped to the macOS unsigned-DMG release path. The Windows release path (NSIS `.exe`) is tracked in [README](../../README.md)._
 
 Use this checklist for each GitHub release.
 

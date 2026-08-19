@@ -11,16 +11,16 @@ mod models;
 mod settings;
 mod storyplan_context;
 
+/// End-to-end tests for the Story Plan loop — real DB, real migrations, real
+/// command helpers. Exists because three runtime-only bugs shipped past a
+/// green unit suite; see the file header.
+#[cfg(test)]
+mod storyplan_e2e_tests;
+
 use commands::{
-    ai as ai_cmds,
-    db_init as db_init_cmds,
-    export as export_cmds,
-    ollama as ollama_cmds,
-    project as project_cmds,
-    search as search_cmds,
-    storyplan as storyplan_cmds,
-    vault as vault_cmds,
-    wards as wards_cmds,
+    ai as ai_cmds, db_init as db_init_cmds, export as export_cmds, ollama as ollama_cmds,
+    project as project_cmds, search as search_cmds, storyplan as storyplan_cmds,
+    vault as vault_cmds, wards as wards_cmds,
 };
 
 fn main() {
@@ -86,7 +86,9 @@ fn main() {
 }
 
 #[tauri::command]
-fn external_vault_parse(path: Option<String>) -> Result<external_vault::ExternalVaultStructure, String> {
+fn external_vault_parse(
+    path: Option<String>,
+) -> Result<external_vault::ExternalVaultStructure, String> {
     external_vault::parse_external_vault(path)
 }
 

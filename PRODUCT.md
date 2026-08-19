@@ -12,13 +12,27 @@ The primary user may not be technical. They want the benefits of local AI and st
 
 ## Product Purpose
 
-Grimoire is a local-first writing studio with memory. It combines a long-form Canvas, a structured spatial archive called the Grimoire Vault, a local AI Co-Writer that retrieves canon before answering, and wards that flag banned words, repeated phrases, cliché phrasing, and voice drift.
+Grimoire is a local-first writing studio with memory. It combines a long-form Canvas, a structured spatial archive called the Grimoire Vault, a Story Plan layer that keeps structure and prose aligned, a local AI Co-Writer that retrieves canon before answering, and wards that flag banned words, repeated phrases, cliché phrasing, and voice drift.
 
 MVP success means proving one complete vertical slice:
 
 Open the app, create a new project, feed the Vault writing, store the work locally, write in the Canvas, connect Ollama, ask the Co-Writer, retrieve Vault memory, show citations, scan banned words, insert or reject output, and export Markdown.
 
 The Canvas remains the source of truth. AI is optional, cited, interruptible, and never allowed to dominate the writing workflow.
+
+## Story Plan
+
+The Story Plan is the structural layer: Plan → Scenes → Beats. It exists because the failure mode of AI-assisted revision is **drift** — you regenerate a scene and it quietly contradicts the chapter before it, or discards the one line you actually wanted to keep.
+
+Three commitments define it:
+
+1. **The writer pins what matters.** Any beat can be locked. Locked beats are hard constraints in the prompt and cannot be regenerated directly. Structure is the writer's to protect, not the model's to renegotiate.
+
+2. **Revision is convergent, not stochastic.** Every regeneration carries an edit instruction plus the context appropriate to the layer being revised. Scene and beat targets get six points — logline and synopsis, Vault character facts, the adjacent scene anchors on both sides, locked beats, the current material, and the instruction. Plan targets get the full scene-by-scene outline plus every locked beat in the plan, scoped to its owning scene; adjacent anchors and per-character facts don't apply when the outline itself is what's under revision. Either way the model revises what exists; it does not start over.
+
+3. **Nothing lands without a decision.** Variants are generated, ward-scanned, and stored as candidates. The writer compares and accepts. A candidate carrying a blocking ward cannot be accepted. Scanning can be turned off per run, in which case the candidate is labelled unscanned rather than clean — the UI never reports a protection that did not run. Rejected candidates are retained as history.
+
+Story Plan is positioned as a **structural editor, not a content generator**. It does not write the book. It refuses to let the scaffolding rot while the writer does.
 
 ## Brand Personality
 

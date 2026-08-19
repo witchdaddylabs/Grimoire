@@ -2,7 +2,7 @@
 // Candidate review UI — Fabula-style convergent iteration (Sprint 4).
 import { useCallback, useEffect, useState } from "react";
 import {
-  Check, Copy, History, ShieldAlert, ShieldCheck, X,
+  Check, Copy, History, ShieldAlert, ShieldCheck, ShieldOff, X,
 } from "lucide-react";
 import { describeError } from "../../app/project";
 import {
@@ -21,25 +21,37 @@ interface CandidateReviewProps {
   refreshKey: number;
 }
 
-type WardTone = "clean" | "warn" | "block";
+type WardTone = "clean" | "warn" | "block" | "unscanned";
 
-function wardLabel(hits: WardScanHit[]): { tone: WardTone; label: string } {
-  if (hits.length === 0) return { tone: "clean", label: "No slop detected" };
+function wardLabel(hits: WardScanHit[], scanned: boolean): { tone: WardTone; label: string } {
+  // Hits ALWAYS take precedence over the scanned flag. A candidate carrying a
+  // blocking hit must block even if the flag says wards never ran — otherwise a
+  // migrated or mislabelled row could present blocking prose as acceptable
+  // (Codex P1 on PR #27). Defence in depth: the migration backfills the flag,
+  // and this ordering means a missed backfill still cannot unblock bad prose.
   const blocking = hits.filter((h) => h.severity === "block");
   if (blocking.length > 0) {
     return { tone: "block", label: `${blocking.length} blocking` };
   }
-  return { tone: "warn", label: `${hits.length} warning${hits.length === 1 ? "" : "s"}` };
+  if (hits.length > 0) {
+    return { tone: "warn", label: `${hits.length} warning${hits.length === 1 ? "" : "s"}` };
+  }
+  // No hits recorded — only now does the flag decide whether that means
+  // "scanned and clean" or "never checked".
+  if (!scanned) return { tone: "unscanned", label: "Wards not run" };
+  return { tone: "clean", label: "No slop detected" };
 }
 
 function wardClassName(tone: WardTone): string {
   if (tone === "block") return "ward-block";
   if (tone === "warn") return "ward-warn";
+  if (tone === "unscanned") return "ward-unscanned";
   return "ward-clean";
 }
 
 function wardIcon(tone: WardTone) {
   if (tone === "clean") return <ShieldCheck size={11} aria-hidden="true" />;
+  if (tone === "unscanned") return <ShieldOff size={11} aria-hidden="true" />;
   return <ShieldAlert size={11} aria-hidden="true" />;
 }
 
@@ -154,7 +166,7 @@ export function CandidateReview({
                   <strong className="sp-candidate-group-title">Pending</strong>
                   {pending.map((candidate) => {
                     const wardHits = candidate.wardScan ?? [];
-                    const ward = wardLabel(wardHits);
+                    const ward = wardLabel(wardHits, candidate.wardScanned);
                     const acceptLabel = linkedItemId ? "Accept & Send to Canvas" : "Accept";
                     const acceptDisabled = busyId === candidate.id || ward.tone === "block";
                     return (

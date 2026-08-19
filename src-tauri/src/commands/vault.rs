@@ -160,7 +160,9 @@ pub fn db_delete_item(request: ItemDeleteRequest) -> CommandResult<VaultTreeResp
 }
 
 #[tauri::command]
-pub fn db_create_vault_node(request: CreateVaultNodeRequest) -> CommandResult<CreateVaultNodeResponse> {
+pub fn db_create_vault_node(
+    request: CreateVaultNodeRequest,
+) -> CommandResult<CreateVaultNodeResponse> {
     let connection = open_project_database(&request.project_path)?;
     let now = timestamp();
     let node_type = request.node_type.trim().to_lowercase();

@@ -1,22 +1,15 @@
-use crate::errors::CommandResult;
-use crate::helpers::timestamp;
 use crate::ai::{
     AiChatRequest, AiChatResponse, AiGenerationRequest, AiModelInfo, AiProviderKind,
     AiProviderModelsResponse,
 };
-use crate::models::{
-    BannedWord, WardScanHit, WardScanResponse,
-};
-use crate::settings::{
-    get_setting, provider_setting_key, provider_settings,
-    set_setting,
-};
+use crate::errors::CommandResult;
+use crate::helpers::timestamp;
+use crate::models::{BannedWord, WardScanHit, WardScanResponse};
+use crate::settings::{get_setting, provider_setting_key, provider_settings, set_setting};
 use keyring::{Entry, Error as KeyringError};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::time::Duration;
-
-
 
 pub fn list_ollama_models(connection: &Connection) -> CommandResult<AiProviderModelsResponse> {
     let base_url = "http://127.0.0.1:11434";
@@ -26,7 +19,11 @@ pub fn list_ollama_models(connection: &Connection) -> CommandResult<AiProviderMo
                 connection,
                 &provider_setting_key(AiProviderKind::Ollama, "selectedModel"),
             )?
-            .or_else(|| get_setting(connection, "ollama.selectedModel").ok().flatten());
+            .or_else(|| {
+                get_setting(connection, "ollama.selectedModel")
+                    .ok()
+                    .flatten()
+            });
             let model_names: Vec<String> = models.iter().map(|model| model.name.clone()).collect();
             let selected_model = select_ollama_model(previous, &model_names);
             if let Some(model) = selected_model.as_deref().filter(|_| model_names.len() == 1) {
@@ -41,7 +38,8 @@ pub fn list_ollama_models(connection: &Connection) -> CommandResult<AiProviderMo
             } else if selected_model.is_some() {
                 "Ollama model ready.".to_string()
             } else {
-                "Ollama found multiple local models. Choose one to enable Co-Writer requests.".to_string()
+                "Ollama found multiple local models. Choose one to enable Co-Writer requests."
+                    .to_string()
             };
 
             Ok(AiProviderModelsResponse {
@@ -100,7 +98,9 @@ pub fn set_api_key_secret(
 ) -> CommandResult<()> {
     secret_entry(project_path, provider)?
         .set_password(api_key)
-        .map_err(|error| format!("Could not save provider API key in the credential store: {error}"))
+        .map_err(|error| {
+            format!("Could not save provider API key in the credential store: {error}")
+        })
 }
 
 pub fn get_api_key_secret(
@@ -253,8 +253,8 @@ pub fn chat_openai_compatible(
     }
     let response: Value = serde_json::from_str(&raw)
         .map_err(|error| format!("Could not parse cloud provider response: {error}"))?;
-    let text =
-        openai_chat_text(&response).ok_or("Cloud provider returned an empty response.".to_string())?;
+    let text = openai_chat_text(&response)
+        .ok_or("Cloud provider returned an empty response.".to_string())?;
     Ok(AiChatResponse {
         provider: request.provider,
         model: request.model.clone(),
@@ -314,7 +314,8 @@ pub fn chat_anthropic(
     }
     let response: Value = serde_json::from_str(&raw)
         .map_err(|error| format!("Could not parse Anthropic response: {error}"))?;
-    let text = anthropic_chat_text(&response).ok_or("Anthropic returned an empty response.".to_string())?;
+    let text = anthropic_chat_text(&response)
+        .ok_or("Anthropic returned an empty response.".to_string())?;
     Ok(AiChatResponse {
         provider: request.provider,
         model: request.model.clone(),
@@ -335,7 +336,10 @@ pub fn chat_anthropic(
     })
 }
 
-pub fn chat_google(connection: &Connection, request: &AiChatRequest) -> CommandResult<AiChatResponse> {
+pub fn chat_google(
+    connection: &Connection,
+    request: &AiChatRequest,
+) -> CommandResult<AiChatResponse> {
     let api_key = get_api_key_secret(&request.project_path, request.provider)?
         .ok_or("Add an API key for Google AI Studio before sending a Co-Writer request.")?;
     let base_url = provider_settings(connection, request.provider)?
@@ -378,8 +382,8 @@ pub fn chat_google(connection: &Connection, request: &AiChatRequest) -> CommandR
     }
     let response: Value = serde_json::from_str(&raw)
         .map_err(|error| format!("Could not parse Google AI Studio response: {error}"))?;
-    let text =
-        gemini_chat_text(&response).ok_or("Google AI Studio returned an empty response.".to_string())?;
+    let text = gemini_chat_text(&response)
+        .ok_or("Google AI Studio returned an empty response.".to_string())?;
     Ok(AiChatResponse {
         provider: request.provider,
         model: request.model.clone(),
@@ -609,7 +613,8 @@ pub fn generate_anthropic(
     }
     let response: Value = serde_json::from_str(&raw)
         .map_err(|error| format!("Could not parse Anthropic response: {error}"))?;
-    let text = anthropic_chat_text(&response).ok_or("Anthropic returned an empty response.".to_string())?;
+    let text = anthropic_chat_text(&response)
+        .ok_or("Anthropic returned an empty response.".to_string())?;
     Ok(AiChatResponse {
         provider: request.provider,
         model: request.model.clone(),
@@ -678,8 +683,8 @@ pub fn generate_google(
     }
     let response: Value = serde_json::from_str(&raw)
         .map_err(|error| format!("Could not parse Google AI Studio response: {error}"))?;
-    let text =
-        gemini_chat_text(&response).ok_or("Google AI Studio returned an empty response.".to_string())?;
+    let text = gemini_chat_text(&response)
+        .ok_or("Google AI Studio returned an empty response.".to_string())?;
     Ok(AiChatResponse {
         provider: request.provider,
         model: request.model.clone(),
@@ -923,8 +928,6 @@ pub fn confidence_for_score(score: f64) -> String {
     }
 }
 
-
-
 pub fn build_grounded_context(
     retrieval_items: &[crate::models::SearchChunkResult],
     canvas_context: Option<&str>,
@@ -971,10 +974,8 @@ pub fn chat_with_vault(
     let retrieval_items =
         crate::db::search_chunks_internal(connection, retrieval_query, max_items)?;
 
-    let grounded_context = build_grounded_context(
-        &retrieval_items,
-        request.canvas_context.as_deref(),
-    );
+    let grounded_context =
+        build_grounded_context(&retrieval_items, request.canvas_context.as_deref());
 
     let chat_request = AiChatRequest {
         project_path: request.project_path.clone(),
@@ -1056,14 +1057,8 @@ mod tests {
         // Script regeneration requests 12K tokens, but Claude 3 Opus only
         // allows 4096 — the ceiling must clamp it (Codex P2 on PR #25).
         use crate::ai::AiProviderKind;
-        assert_eq!(
-            provider_output_ceiling(AiProviderKind::Anthropic),
-            4096
-        );
-        assert_eq!(
-            provider_output_ceiling(AiProviderKind::OpenAi),
-            4096
-        );
+        assert_eq!(provider_output_ceiling(AiProviderKind::Anthropic), 4096);
+        assert_eq!(provider_output_ceiling(AiProviderKind::OpenAi), 4096);
         assert_eq!(
             provider_output_ceiling(AiProviderKind::GoogleAiStudio),
             8192
@@ -1081,7 +1076,10 @@ mod tests {
         assert_eq!(openai_stop_reason(&openai).as_deref(), Some("length"));
 
         let anthropic = serde_json::json!({"stop_reason": "max_tokens"});
-        assert_eq!(anthropic_stop_reason(&anthropic).as_deref(), Some("max_tokens"));
+        assert_eq!(
+            anthropic_stop_reason(&anthropic).as_deref(),
+            Some("max_tokens")
+        );
 
         let gemini = serde_json::json!({"candidates": [{"finishReason": "MAX_TOKENS"}]});
         assert_eq!(gemini_stop_reason(&gemini).as_deref(), Some("MAX_TOKENS"));
@@ -1092,8 +1090,14 @@ mod tests {
 
     #[test]
     fn punctuated_character_search_terms_are_valid_fts() {
-        assert_eq!(crate::db::fts_query_terms("O'Connor").unwrap(), "\"O'Connor\"");
-        assert_eq!(crate::db::fts_query_terms("Mary-Jane").unwrap(), "\"Mary-Jane\"");
+        assert_eq!(
+            crate::db::fts_query_terms("O'Connor").unwrap(),
+            "\"O'Connor\""
+        );
+        assert_eq!(
+            crate::db::fts_query_terms("Mary-Jane").unwrap(),
+            "\"Mary-Jane\""
+        );
     }
 
     #[test]

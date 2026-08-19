@@ -188,8 +188,12 @@ CREATE TABLE IF NOT EXISTS story_candidates (
   prompt_summary TEXT,
   candidate_index INTEGER NOT NULL,
   content TEXT NOT NULL,
-  /** JSON array of WardScanHit, stored when candidates are generated. */
+  /** JSON array of WardScanHit — the hits found when this candidate was scanned. */
   ward_scan_json TEXT NOT NULL DEFAULT '[]',
+  /** 1 when wards were actually run for this candidate, 0 when the writer
+      opted out. Without this an unscanned candidate is indistinguishable
+      from a clean one, and the UI would label it "No slop detected". */
+  ward_scanned INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','rejected')),
   created_at TEXT NOT NULL
 );
@@ -288,6 +292,10 @@ pub fn run_migrations(connection: &mut Connection) -> CommandResult<()> {
         .execute_batch(STORY_PLAN_SCHEMA)
         .map_err(|error| format!("Could not apply story plan schema: {error}"))?;
 
+    // Must run AFTER the CREATE TABLE batch: story_candidates predates the
+    // ward_scan_json column, and IF NOT EXISTS cannot add it retroactively.
+    ensure_candidate_ward_scan_column(connection)?;
+
     if story_plan_applied == 0 {
         connection
             .execute(
@@ -295,6 +303,76 @@ pub fn run_migrations(connection: &mut Connection) -> CommandResult<()> {
                 params![SCHEMA_VERSION, "story_plan", timestamp()],
             )
             .map_err(|error| format!("Could not record story plan migration: {error}"))?;
+    }
+
+    Ok(())
+}
+
+fn ensure_candidate_ward_scan_column(connection: &Connection) -> CommandResult<()> {
+    // story_candidates was created in schema v3 WITHOUT ward_scan_json or
+    // ward_scanned; both were added later (Sprint 4 / Sprint 5). CREATE TABLE
+    // IF NOT EXISTS will not add a column to an existing table, so projects
+    // created before those sprints would fail every candidate query with
+    // "no such column".
+    let table_exists: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='story_candidates'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("Could not inspect story_candidates table: {error}"))?;
+    if table_exists == 0 {
+        return Ok(());
+    }
+
+    let mut statement = connection
+        .prepare("PRAGMA table_info(story_candidates)")
+        .map_err(|error| format!("Could not inspect story_candidates table: {error}"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| format!("Could not inspect story_candidates columns: {error}"))?;
+
+    let mut existing: Vec<String> = Vec::new();
+    for column in columns {
+        existing.push(
+            column.map_err(|error| format!("Could not read story_candidates column: {error}"))?,
+        );
+    }
+
+    if !existing.iter().any(|name| name == "ward_scan_json") {
+        connection
+            .execute_batch(
+                "ALTER TABLE story_candidates ADD COLUMN ward_scan_json TEXT NOT NULL DEFAULT '[]';",
+            )
+            .map_err(|error| format!("Could not add candidate ward scan column: {error}"))?;
+    }
+
+    // Existing rows default to 0 (not scanned), then we backfill any row whose
+    // stored scan proves wards DID run. Without the backfill, a migrated
+    // candidate carrying blocking hits renders as "Wards not run" and — because
+    // the unscanned state is checked before the hits — its Accept button is
+    // enabled (Codex P1 on PR #27).
+    if !existing.iter().any(|name| name == "ward_scanned") {
+        connection
+            .execute_batch(
+                "ALTER TABLE story_candidates ADD COLUMN ward_scanned INTEGER NOT NULL DEFAULT 0;",
+            )
+            .map_err(|error| format!("Could not add candidate ward scanned flag: {error}"))?;
+
+        // A non-empty hit array is positive evidence that wards ran. Rows with
+        // '[]' stay 0: we genuinely cannot tell whether they were scanned and
+        // clean or never scanned, and "unknown" is the honest answer.
+        connection
+            .execute(
+                r#"
+                UPDATE story_candidates
+                SET ward_scanned = 1
+                WHERE ward_scan_json IS NOT NULL
+                  AND TRIM(ward_scan_json) NOT IN ('', '[]', 'null')
+                "#,
+                [],
+            )
+            .map_err(|error| format!("Could not backfill candidate ward scan state: {error}"))?;
     }
 
     Ok(())
@@ -429,9 +507,70 @@ mod tests {
 
         // One row per migration (archive_items + story_plan), never duplicates.
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn ward_scanned_migration_backfills_rows_with_known_hits() {
+        // Codex P1 on PR #27: defaulting every migrated row to ward_scanned=0
+        // meant a pre-existing candidate carrying BLOCKING hits rendered as
+        // "Wards not run" — and because the unscanned branch was checked before
+        // the hits, its Accept button was enabled.
+        let mut conn = test_db();
+        run_migrations(&mut conn).unwrap();
+
+        // Simulate a pre-Sprint-5 project: drop the flag column, leaving rows
+        // that carry ward hits but no scanned marker.
+        conn.execute_batch(
+            "CREATE TABLE candidates_old AS SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, status, created_at FROM story_candidates;
+             DROP TABLE story_candidates;
+             ALTER TABLE candidates_old RENAME TO story_candidates;",
+        )
+        .unwrap();
+
+        let blocking = r#"[{"id":"w1","value":"tapestry","severity":"block","count":1}]"#;
+        for (id, scan) in [
+            ("c_blocking", blocking),
+            (
+                "c_warn",
+                r#"[{"id":"w2","value":"very","severity":"warn","count":3}]"#,
+            ),
+            ("c_empty", "[]"),
+        ] {
+            conn.execute(
+                "INSERT INTO story_candidates (id, target_kind, target_id, provider, model, candidate_index, content, ward_scan_json, status, created_at) VALUES (?1, 'scene', 'scene_x', 'ollama', 'llama3.2', 0, 'text', ?2, 'pending', '1')",
+                rusqlite::params![id, scan],
+            )
+            .unwrap();
+        }
+
+        // Re-run migrations: the column is re-added and backfilled.
+        run_migrations(&mut conn).unwrap();
+
+        let flag = |id: &str| -> i64 {
+            conn.query_row(
+                "SELECT ward_scanned FROM story_candidates WHERE id = ?1",
+                rusqlite::params![id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+
+        assert_eq!(
+            flag("c_blocking"),
+            1,
+            "stored blocking hits prove wards ran — must not be reported unscanned"
+        );
+        assert_eq!(flag("c_warn"), 1, "stored warning hits prove wards ran");
+        assert_eq!(
+            flag("c_empty"),
+            0,
+            "an empty scan is genuinely ambiguous and stays unscanned"
+        );
     }
 
     #[test]

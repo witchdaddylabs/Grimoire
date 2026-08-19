@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import {
   createProject, createDemoProject, openProject,
-  recordRecentProject, getRecentProjects, compactPath,
+  recordRecentProject, getRecentProjects, removeRecentProject, compactPath,
   describeError, type ProjectMetadata, type RecentProject,
 } from "./project";
 import {
@@ -81,6 +81,8 @@ export function App() {
   const [view, setView] = useState<AppView>("picker");
   const [project, setProject] = useState<ProjectMetadata | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
+  /** Real reason the backend bridge failed, shown in the UI instead of hidden. */
+  const [bootError, setBootError] = useState<string | null>(null);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>(getRecentProjects);
 
   // Vault + editor
@@ -157,8 +159,15 @@ export function App() {
       try {
         await invoke<string>("app_ping");
         if (!cancelled) setTauriState("awake");
-      } catch {
-        if (!cancelled) setTauriState("browser");
+      } catch (error) {
+        // NEVER swallow this. If the IPC bridge is unreachable the whole app is
+        // inert, and a silent catch turns that into "every button does nothing"
+        // with no explanation. Surface it loudly instead.
+        console.error("[Grimoire] app_ping failed — backend unreachable:", error);
+        if (!cancelled) {
+          setTauriState("browser");
+          setBootError(describeError(error));
+        }
       } finally {
         if (!cancelled) setProjectLoading(false);
       }
@@ -228,22 +237,38 @@ export function App() {
   // Project handlers
   const handleCreateProject = useCallback(async (name: string) => {
     if (!name.trim()) return;
-    const metadata = await createProject(name.trim());
-    await loadProjectIntoWorkspace(metadata);
-  }, [loadProjectIntoWorkspace]);
+    try {
+      const metadata = await createProject(name.trim());
+      await loadProjectIntoWorkspace(metadata);
+    } catch (error) {
+      // A dead button with no message is the worst possible failure mode.
+      console.error("[Grimoire] project_create failed:", error);
+      showToast(describeError(error));
+    }
+  }, [loadProjectIntoWorkspace, showToast]);
 
   const handleOpenProject = useCallback(async () => {
-    const selected = await open({ directory: true, multiple: false, title: "Open Grimoire Project" });
-    if (selected && typeof selected === "string") {
-      const metadata = await openProject(selected);
-      await loadProjectIntoWorkspace(metadata);
+    try {
+      const selected = await open({ directory: true, multiple: false, title: "Open Grimoire Project" });
+      if (selected && typeof selected === "string") {
+        const metadata = await openProject(selected);
+        await loadProjectIntoWorkspace(metadata);
+      }
+    } catch (error) {
+      console.error("[Grimoire] project_open failed:", error);
+      showToast(describeError(error));
     }
-  }, [loadProjectIntoWorkspace]);
+  }, [loadProjectIntoWorkspace, showToast]);
 
   const handleLoadDemo = useCallback(async () => {
-    const metadata = await createDemoProject();
-    await loadProjectIntoWorkspace(metadata);
-  }, [loadProjectIntoWorkspace]);
+    try {
+      const metadata = await createDemoProject();
+      await loadProjectIntoWorkspace(metadata);
+    } catch (error) {
+      console.error("[Grimoire] demo project creation failed:", error);
+      showToast(describeError(error));
+    }
+  }, [loadProjectIntoWorkspace, showToast]);
 
   // Search
   const handleSearch = useCallback(async () => {
@@ -419,27 +444,58 @@ export function App() {
       {view === "picker" && (
         <section className="project-picker" role="dialog" aria-label="Open or create project">
           <div className="project-picker-inner">
-            <BookOpenText size={32} style={{ color: "var(--accent-bronze-bright)" }} />
-            <h2>Welcome to Grimoire</h2>
-            <p>Local-first writing studio with Vault memory.</p>
+            <div className="project-picker-header">
+              <BookOpenText size={32} style={{ color: "var(--accent-bronze-bright)" }} />
+              <h2>Welcome to Grimoire</h2>
+              <p className="project-picker-subtitle">
+                Local-first writing studio with Vault memory.
+              </p>
+            </div>
+
+            {bootError && (
+              <div className="project-picker-error" role="alert">
+                <AlertTriangle size={15} aria-hidden="true" />
+                <div>
+                  <strong>The desktop backend is unreachable.</strong>
+                  <span>{bootError}</span>
+                  <span className="project-picker-error-hint">
+                    Project actions are disabled until this is resolved.
+                  </span>
+                </div>
+              </div>
+            )}
 
             <div className="project-picker-actions">
-              <form onSubmit={async (e) => { e.preventDefault(); if (pickerName.trim()) { await handleCreateProject(pickerName.trim()); setPickerName(""); } }}>
-                <input
-                  className="input" type="text" placeholder="Project name"
-                  value={pickerName} onChange={e => setPickerName(e.target.value)}
-                />
-                <button className="button button-primary" type="submit">
-                  <Plus size={16} /> Create New Project
-                </button>
-              </form>
-                  <button className="button button-secondary" type="button" onClick={handleOpenProject}>
-                    <Archive size={16} /> Open Existing Project
+              <div className="project-picker-create">
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (pickerName.trim()) {
+                      await handleCreateProject(pickerName.trim());
+                      setPickerName("");
+                    }
+                  }}
+                >
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="Project name"
+                    value={pickerName}
+                    onChange={e => setPickerName(e.target.value)}
+                  />
+                  <button className="button button-primary" type="submit">
+                    <Plus size={16} /> Create New Project
                   </button>
-                  <button className="button button-secondary" type="button" onClick={handleLoadDemo}>
-                    <FileText size={16} /> Load Demo
-                  </button>
-                </div>
+                </form>
+              </div>
+
+              <button className="button button-secondary" type="button" onClick={handleOpenProject}>
+                <Archive size={16} /> Open Existing Project
+              </button>
+              <button className="button button-secondary" type="button" onClick={handleLoadDemo}>
+                <FileText size={16} /> Load Demo
+              </button>
+            </div>
 
             {recentProjects.length > 0 && (
               <div className="project-picker-recent">
@@ -449,7 +505,15 @@ export function App() {
                     <li key={rp.path}>
                       <button className="recent-project-button" type="button" onClick={async () => {
                         try { await loadProjectIntoWorkspace(await openProject(rp.path)); }
-                        catch { showToast("Could not open project."); }
+                        catch (error) {
+                          // Say WHY. A stale entry pointing at a moved or
+                          // deleted folder is the common case, and "Could not
+                          // open project." alone left the writer guessing.
+                          console.error("[Grimoire] recent project open failed:", rp.path, error);
+                          showToast(describeError(error));
+                          removeRecentProject(rp.path);
+                          setRecentProjects(getRecentProjects());
+                        }
                       }}>
                         <FileText size={14} />
                         <div>

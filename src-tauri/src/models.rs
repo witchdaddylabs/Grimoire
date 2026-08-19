@@ -455,6 +455,9 @@ pub struct StoryCandidate {
     pub candidate_index: i64,
     pub content: String,
     pub ward_scan: Vec<WardScanHit>,
+    /// False when the writer opted out of ward scanning for this run. The UI
+    /// must not present an unscanned candidate as clean.
+    pub ward_scanned: bool,
     pub status: String,
     pub created_at: String,
 }
