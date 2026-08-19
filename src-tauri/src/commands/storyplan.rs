@@ -198,21 +198,40 @@ fn delete_candidates_for(connection: &Connection, target_ids: &[String]) -> Comm
 
 /// Decode a stored ward-hit array.
 ///
-/// Returns a single synthetic BLOCKING hit when the payload cannot be parsed,
-/// rather than an empty vec. Silently defaulting to "no hits" is what let a
-/// malformed ward_scan_json present blocking prose as clean with Accept
-/// enabled (Codex P1 on PR #27). Failing closed is the only safe direction
-/// for a guardrail: if we cannot prove the text is clean, we must not claim it.
+/// Accepts BOTH shapes:
+///   * the current bare array  `[{...}]`
+///   * the legacy WardScanResponse object `{"hits":[...],"hasBlockingHits":b}`
+///     written by the pre-fix pipeline, whose `.hits` we extract.
+///
+/// Only a genuinely unreadable payload fails closed, returning a synthetic
+/// BLOCKING hit rather than an empty vec — silently defaulting to "no hits" is
+/// what let malformed ward data present blocking prose as clean with Accept
+/// enabled (Codex P1 on PR #27). Failing closed is the only safe direction for
+/// a guardrail: if we cannot prove the text is clean, we must not claim it.
+/// Legacy rows must still decode, though, or upgrading would block every
+/// stored proposal including the clean ones (Codex P2 follow-up).
 pub(crate) fn decode_ward_hits(raw: &str) -> Vec<crate::models::WardScanHit> {
-    match serde_json::from_str::<Vec<crate::models::WardScanHit>>(raw) {
-        Ok(hits) => hits,
-        Err(_) => vec![crate::models::WardScanHit {
-            id: "ward_decode_error".to_string(),
-            value: "Stored ward scan could not be read — treat as unverified".to_string(),
-            severity: "block".to_string(),
-            count: 1,
-        }],
+    // Current format.
+    if let Ok(hits) = serde_json::from_str::<Vec<crate::models::WardScanHit>>(raw) {
+        return hits;
     }
+    // Legacy format: pull .hits out of the response object.
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) {
+        if let Some(hits) = value.get("hits") {
+            if let Ok(hits) =
+                serde_json::from_value::<Vec<crate::models::WardScanHit>>(hits.clone())
+            {
+                return hits;
+            }
+        }
+    }
+    // Unreadable: fail closed.
+    vec![crate::models::WardScanHit {
+        id: "ward_decode_error".to_string(),
+        value: "Stored ward scan could not be read — treat as unverified".to_string(),
+        severity: "block".to_string(),
+        count: 1,
+    }]
 }
 
 /// Candidate row fields for insertion. Bundled into a struct so the helper
@@ -1738,19 +1757,39 @@ mod tests {
     fn undecodable_ward_scan_fails_closed_as_blocking() {
         // A guardrail must fail closed. If the stored scan cannot be read we
         // cannot prove the text is clean, so we must not claim it is.
-        let hits = decode_ward_hits("{\"hits\":[],\"hasBlockingHits\":false}");
-        assert_eq!(hits.len(), 1, "malformed payload must produce a hit");
+        let garbage = decode_ward_hits("not json at all");
+        assert_eq!(garbage.len(), 1, "malformed payload must produce a hit");
         assert_eq!(
-            hits[0].severity, "block",
+            garbage[0].severity, "block",
             "an unreadable ward scan must block acceptance, not pass silently"
         );
-
-        let garbage = decode_ward_hits("not json at all");
-        assert_eq!(garbage[0].severity, "block");
 
         // A genuinely empty scan is still empty — fail-closed must not fire on
         // the legitimate "scanned, nothing found" case.
         assert!(decode_ward_hits("[]").is_empty());
+    }
+
+    #[test]
+    fn legacy_ward_response_objects_still_decode() {
+        // Codex P2 follow-up: rows written by the pre-fix pipeline hold a whole
+        // WardScanResponse. Failing those closed would block every stored
+        // proposal after an upgrade — including the clean ones.
+        let legacy_clean = r#"{"hits":[],"hasBlockingHits":false}"#;
+        assert!(
+            decode_ward_hits(legacy_clean).is_empty(),
+            "a clean legacy row must stay clean, not become blocking"
+        );
+
+        let legacy_hits = r#"{"hits":[{"id":"w1","value":"tapestry","severity":"block","count":2}],"hasBlockingHits":true}"#;
+        let hits = decode_ward_hits(legacy_hits);
+        assert_eq!(
+            hits.len(),
+            1,
+            "legacy hits must be extracted, not discarded"
+        );
+        assert_eq!(hits[0].value, "tapestry");
+        assert_eq!(hits[0].severity, "block");
+        assert_eq!(hits[0].count, 2);
     }
 
     #[test]
