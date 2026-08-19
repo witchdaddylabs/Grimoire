@@ -3,6 +3,5 @@
   "identifier": "default",
   "description": "Default permissions for the Grimoire main window.",
   "windows": ["main"],
-  "permissions": ["core:default", "opener:default"]
+  "permissions": ["core:default", "opener:default", "dialog:default"]
 }
-

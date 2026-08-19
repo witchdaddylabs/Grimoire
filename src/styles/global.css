@@ -1473,9 +1473,19 @@ select:focus-visible,
   gap: 8px;
 }
 
+/* The generic `.project-picker-actions .button { width: 100% }` rule would
+   otherwise let this submit button consume the row and squash the input to a
+   few pixels. Inside the create row the button sizes to its content and the
+   input takes the remaining space. */
+.project-picker-create form .button {
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .project-picker-create .input {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: 140px;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   background: rgba(5, 6, 7, 0.42);
@@ -1494,10 +1504,34 @@ select:focus-visible,
 .project-picker-error {
   margin: 0;
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(252, 165, 165, 0.28);
+  border-radius: 8px;
+  background: rgba(127, 29, 29, 0.16);
   font-size: 12px;
   color: #fca5a5;
+  text-align: left;
+}
+
+.project-picker-error > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.project-picker-error strong {
+  font-weight: 700;
+}
+
+.project-picker-error span {
+  overflow-wrap: anywhere;
+}
+
+.project-picker-error-hint {
+  color: var(--parchment-muted);
 }
 
 .theme-ivory .project-picker {
