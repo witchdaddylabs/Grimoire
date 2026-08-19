@@ -24,15 +24,22 @@ interface CandidateReviewProps {
 type WardTone = "clean" | "warn" | "block" | "unscanned";
 
 function wardLabel(hits: WardScanHit[], scanned: boolean): { tone: WardTone; label: string } {
-  // An unscanned candidate is NOT a clean one — saying "No slop detected"
-  // when the wards never ran is a false safety signal.
-  if (!scanned) return { tone: "unscanned", label: "Wards not run" };
-  if (hits.length === 0) return { tone: "clean", label: "No slop detected" };
+  // Hits ALWAYS take precedence over the scanned flag. A candidate carrying a
+  // blocking hit must block even if the flag says wards never ran — otherwise a
+  // migrated or mislabelled row could present blocking prose as acceptable
+  // (Codex P1 on PR #27). Defence in depth: the migration backfills the flag,
+  // and this ordering means a missed backfill still cannot unblock bad prose.
   const blocking = hits.filter((h) => h.severity === "block");
   if (blocking.length > 0) {
     return { tone: "block", label: `${blocking.length} blocking` };
   }
-  return { tone: "warn", label: `${hits.length} warning${hits.length === 1 ? "" : "s"}` };
+  if (hits.length > 0) {
+    return { tone: "warn", label: `${hits.length} warning${hits.length === 1 ? "" : "s"}` };
+  }
+  // No hits recorded — only now does the flag decide whether that means
+  // "scanned and clean" or "never checked".
+  if (!scanned) return { tone: "unscanned", label: "Wards not run" };
+  return { tone: "clean", label: "No slop detected" };
 }
 
 function wardClassName(tone: WardTone): string {

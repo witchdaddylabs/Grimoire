@@ -196,6 +196,25 @@ fn delete_candidates_for(connection: &Connection, target_ids: &[String]) -> Comm
     Ok(())
 }
 
+/// Decode a stored ward-hit array.
+///
+/// Returns a single synthetic BLOCKING hit when the payload cannot be parsed,
+/// rather than an empty vec. Silently defaulting to "no hits" is what let a
+/// malformed ward_scan_json present blocking prose as clean with Accept
+/// enabled (Codex P1 on PR #27). Failing closed is the only safe direction
+/// for a guardrail: if we cannot prove the text is clean, we must not claim it.
+pub(crate) fn decode_ward_hits(raw: &str) -> Vec<crate::models::WardScanHit> {
+    match serde_json::from_str::<Vec<crate::models::WardScanHit>>(raw) {
+        Ok(hits) => hits,
+        Err(_) => vec![crate::models::WardScanHit {
+            id: "ward_decode_error".to_string(),
+            value: "Stored ward scan could not be read — treat as unverified".to_string(),
+            severity: "block".to_string(),
+            count: 1,
+        }],
+    }
+}
+
 /// Candidate row fields for insertion. Bundled into a struct so the helper
 /// keeps a narrow signature as the pipeline grows fields.
 pub(crate) struct NewCandidate<'a> {
@@ -263,8 +282,7 @@ pub(crate) fn read_candidate(
                     prompt_summary: row.get(5)?,
                     candidate_index: row.get(6)?,
                     content: row.get(7)?,
-                    ward_scan: serde_json::from_str(row.get::<_, String>(8)?.as_str())
-                        .unwrap_or_default(),
+                    ward_scan: decode_ward_hits(row.get::<_, String>(8)?.as_str()),
                     ward_scanned: row.get::<_, i64>(9)? != 0,
                     status: row.get(10)?,
                     created_at: row.get(11)?,
@@ -872,8 +890,7 @@ pub(crate) fn read_candidates_for_target(
                 prompt_summary: row.get(5)?,
                 candidate_index: row.get(6)?,
                 content: row.get(7)?,
-                ward_scan: serde_json::from_str(row.get::<_, String>(8)?.as_str())
-                    .unwrap_or_default(),
+                ward_scan: decode_ward_hits(row.get::<_, String>(8)?.as_str()),
                 ward_scanned: row.get::<_, i64>(9)? != 0,
                 status: row.get(10)?,
                 created_at: row.get(11)?,
@@ -919,8 +936,7 @@ pub fn storyplan_candidate_resolve(
                     prompt_summary: row.get(5)?,
                     candidate_index: row.get(6)?,
                     content: row.get(7)?,
-                    ward_scan: serde_json::from_str(row.get::<_, String>(8)?.as_str())
-                        .unwrap_or_default(),
+                    ward_scan: decode_ward_hits(row.get::<_, String>(8)?.as_str()),
                     ward_scanned: row.get::<_, i64>(9)? != 0,
                     status: row.get(10)?,
                     created_at: row.get(11)?,
@@ -1003,8 +1019,7 @@ pub fn storyplan_candidate_resolve(
                     prompt_summary: row.get(5)?,
                     candidate_index: row.get(6)?,
                     content: row.get(7)?,
-                    ward_scan: serde_json::from_str(row.get::<_, String>(8)?.as_str())
-                        .unwrap_or_default(),
+                    ward_scan: decode_ward_hits(row.get::<_, String>(8)?.as_str()),
                     ward_scanned: row.get::<_, i64>(9)? != 0,
                     status: row.get(10)?,
                     created_at: row.get(11)?,
@@ -1258,12 +1273,15 @@ pub fn storyplan_regenerate(
                 candidate_count
             ));
         }
+        // Store ONLY the hits array. scan_wards_internal returns a
+        // WardScanResponse ({hits, hasBlockingHits}); serializing the whole
+        // object made ward_scan_json undecodable as Vec<WardScanHit>, and the
+        // reader's unwrap_or_default() then silently turned blocking hits into
+        // "no slop detected" with Accept enabled (Codex P1 on PR #27).
         let ward_scan_json = if scan_wards {
-            serde_json::to_string(&crate::db::scan_wards_internal(
-                &connection,
-                &response.text,
-            )?)
-            .map_err(|error| format!("Could not serialize ward scan: {error}"))?
+            let scan = crate::db::scan_wards_internal(&connection, &response.text)?;
+            serde_json::to_string(&scan.hits)
+                .map_err(|error| format!("Could not serialize ward scan: {error}"))?
         } else {
             "[]".to_string()
         };
@@ -1682,6 +1700,57 @@ mod tests {
         );
         // created_at must still map correctly with the extra column in place.
         assert!(!scanned.created_at.is_empty());
+    }
+
+    #[test]
+    fn ward_hits_are_stored_as_a_bare_array_not_a_response_object() {
+        // Codex P1 on PR #27: regenerate serialized the whole WardScanResponse
+        // ({hits, hasBlockingHits}), which cannot deserialize into
+        // Vec<WardScanHit>. The reader's unwrap_or_default() then turned
+        // blocking hits into an empty vec — blocking prose shown as clean with
+        // Accept enabled.
+        let response = crate::models::WardScanResponse {
+            hits: vec![crate::models::WardScanHit {
+                id: "ward_1".to_string(),
+                value: "tapestry".to_string(),
+                severity: "block".to_string(),
+                count: 2,
+            }],
+            has_blocking_hits: true,
+        };
+
+        // What the buggy code stored: the whole object.
+        let object_shape = serde_json::to_string(&response).unwrap();
+        assert!(
+            serde_json::from_str::<Vec<crate::models::WardScanHit>>(&object_shape).is_err(),
+            "the response object must NOT be decodable as a hit array — this is the bug"
+        );
+
+        // What we store now: only the hits.
+        let array_shape = serde_json::to_string(&response.hits).unwrap();
+        let decoded = decode_ward_hits(&array_shape);
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].severity, "block");
+        assert_eq!(decoded[0].value, "tapestry");
+    }
+
+    #[test]
+    fn undecodable_ward_scan_fails_closed_as_blocking() {
+        // A guardrail must fail closed. If the stored scan cannot be read we
+        // cannot prove the text is clean, so we must not claim it is.
+        let hits = decode_ward_hits("{\"hits\":[],\"hasBlockingHits\":false}");
+        assert_eq!(hits.len(), 1, "malformed payload must produce a hit");
+        assert_eq!(
+            hits[0].severity, "block",
+            "an unreadable ward scan must block acceptance, not pass silently"
+        );
+
+        let garbage = decode_ward_hits("not json at all");
+        assert_eq!(garbage[0].severity, "block");
+
+        // A genuinely empty scan is still empty — fail-closed must not fire on
+        // the legitimate "scanned, nothing found" case.
+        assert!(decode_ward_hits("[]").is_empty());
     }
 
     #[test]
