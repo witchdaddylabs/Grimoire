@@ -766,17 +766,20 @@ pub fn storyplan_candidate_store(request: StoryCandidateStoreRequest) -> Command
     read_candidate(&connection, &candidate_id)
 }
 
-#[tauri::command]
-pub fn storyplan_candidate_list(
-    project_path: String,
-    target_kind: String,
-    target_id: String,
+/// Read every candidate for a target, newest-first within each index.
+/// Extracted from the Tauri command so the row mapping is unit-testable —
+/// the command itself opens its own connection and cannot be tested.
+/// A drifting SELECT column list vs. mapper index caused a runtime-only
+/// failure once already (Codex P1 on PR #27); the test now calls this.
+pub(crate) fn read_candidates_for_target(
+    connection: &Connection,
+    target_kind: &str,
+    target_id: &str,
 ) -> CommandResult<Vec<StoryCandidate>> {
-    let connection = open_project_database(&project_path)?;
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, status, created_at
+            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, status, created_at
             FROM story_candidates
             WHERE target_kind = ?1 AND target_id = ?2
             ORDER BY candidate_index ASC, created_at DESC
@@ -805,6 +808,16 @@ pub fn storyplan_candidate_list(
 
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("Could not read story candidates: {error}"))
+}
+
+#[tauri::command]
+pub fn storyplan_candidate_list(
+    project_path: String,
+    target_kind: String,
+    target_id: String,
+) -> CommandResult<Vec<StoryCandidate>> {
+    let connection = open_project_database(&project_path)?;
+    read_candidates_for_target(&connection, &target_kind, &target_id)
 }
 
 #[tauri::command]
@@ -1342,6 +1355,54 @@ mod tests {
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM story_candidates WHERE status = 'pending'"), 0);
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM story_candidates WHERE status = 'accepted'"), 1);
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM story_candidates WHERE status = 'rejected'"), 2);
+    }
+
+    #[test]
+    fn candidate_list_query_maps_every_column() {
+        // Regression: the candidate_list SELECT omitted ward_scan_json while
+        // the row mapper still read created_at at index 10, so every call
+        // failed with an invalid-column error and the whole compare/accept
+        // flow was dead at runtime. Unit tests never touched this mapping.
+        // (Codex P1 on PR #27.)
+        let conn = test_db();
+        insert_plan(&conn, "plan_1");
+        insert_scene(&conn, "scene_1", "plan_1");
+
+        let hits = r#"[{"id":"ward_very","value":"very","severity":"warn","count":2}]"#;
+        insert_candidate(
+            &conn,
+            &NewCandidate {
+                target_kind: "scene",
+                target_id: "scene_1",
+                provider: "ollama",
+                model: "llama3.2",
+                prompt_summary: Some("regenerate scene: tighten"),
+                candidate_index: 0,
+                content: "Variant prose.",
+                ward_scan_json: hits,
+            },
+        )
+        .unwrap();
+
+        // Call the REAL query path, not a copy of it — a duplicated SELECT in
+        // the test cannot detect drift in the production statement.
+        let rows = read_candidates_for_target(&conn, "scene", "scene_1")
+            .expect("candidate list must not fail with an invalid-column error");
+
+        assert_eq!(rows.len(), 1, "candidate must be listed, not error out");
+        let candidate = &rows[0];
+        assert_eq!(candidate.target_kind, "scene");
+        assert_eq!(candidate.content, "Variant prose.");
+        assert_eq!(candidate.status, "pending");
+        assert!(
+            !candidate.created_at.is_empty(),
+            "created_at must map from index 10, not the ward column"
+        );
+        // The stored ward scan must survive the round trip — this is what the
+        // UI reads to disable Accept on blocking hits.
+        assert_eq!(candidate.ward_scan.len(), 1);
+        assert_eq!(candidate.ward_scan[0].value, "very");
+        assert_eq!(candidate.ward_scan[0].count, 2);
     }
 
     #[test]
