@@ -1,6 +1,6 @@
 # M2 Local Project + SQLite Plan
 
-> _Historical milestone plan (completed). In this plan "Palace" is today's "Vault". The current roadmap is [get-it-working-plan](../../get-it-working-plan.md)._
+> _Historical milestone plan (completed). In this plan "Palace" is today's "Vault". The current roadmap is [README](../../../README.md)._
 
 Goal: create the first real desktop persistence foundation for Grimoire.
 

@@ -1,6 +1,6 @@
 # M13 Manual QA Log
 
-> _Historical evidence from the v0.1.0 macOS release era. In this log "Palace" is today's "Vault", and "macOS Keychain" is now the cross-platform OS credential store (`keyring`). Forward-looking status lives in [get-it-working-plan](../get-it-working-plan.md)._
+> _Historical evidence from the v0.1.0 macOS release era. In this log "Palace" is today's "Vault", and "macOS Keychain" is now the cross-platform OS credential store (`keyring`). Forward-looking status lives in [README](../../README.md)._
 
 Date: 2026-04-30
 Platform: macOS

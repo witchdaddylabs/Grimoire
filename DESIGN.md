@@ -217,6 +217,22 @@ Navigation is archival and spatial. The Vault tree should show hierarchy clearly
 
 Citation cards prove that the Co-Writer retrieved real Vault memory. Each card should show source title, item type, Vault path, and a short excerpt. Confidence belongs near the answer, not hidden in settings.
 
+### Story Plan — Pinned Beats and Candidates
+
+The Story Plan tree (Plan → Scenes → Beats) follows the same dark-neutral structural rules as the Vault tree: graphite rows, hairline borders, bronze only for the selected row.
+
+**Pinned beats are a sanctioned emerald use.** A pinned beat is a guardrail — the writer has declared it protected and the model is forbidden from changing it. That is the same semantic class as "guardrail pass state", so the shield icon and pinned-row treatment carry ward emerald. An unpinned beat uses neutral graphite. Pinning must never be indicated by colour alone: the icon changes from outline shield to filled shield-check, so the state survives colour blindness and greyscale.
+
+**Candidate ward pills** follow the existing status-chip vocabulary, not a new one:
+
+- **Emerald** — no slop detected; the candidate passed the wards
+- **Amber** — warnings present; acceptance allowed, writer's judgement
+- **Danger** — blocking ward; the Accept control is disabled until resolved
+
+A blocked candidate must *look* blocked. Disabled Accept plus a danger pill plus the listed hits — three signals, not one.
+
+**Candidates are proposals, never applied state.** A pending candidate is visually provisional: inset card, dimmer than committed content, always accompanied by explicit Accept and Reject controls. Resolved candidates drop to reduced opacity in a collapsed history drawer. Nothing in the Story Plan should imply the model has already changed the writer's work — because it hasn't, until they say so.
+
 ## 6. Do's and Don'ts
 
 ### Do:
