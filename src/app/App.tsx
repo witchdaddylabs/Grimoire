@@ -682,8 +682,15 @@ export function App() {
             </div>
           </div>
 
-          {/* Right: Co-Writer panel — hidden in focus mode */}
+          {/* Right: Co-Writer panel — hidden in focus mode.
+              The wrapper is required, not cosmetic: CoWriterPanel returns a
+              fragment (PanelHeader + .panel-scroll), so without it those two
+              become SEPARATE workspace grid items. The header lands under the
+              Vault, the tool content under the Canvas, and no responsive rule
+              can position or height-bound them together (Codex P1 on PR #28).
+              Vault and Canvas already use this same wrapper pattern. */}
           {!focusMode && (
+            <div className={`cowriter-panel panel${coWriter.rightCollapsed ? " is-collapsed" : ""}`}>
             <CoWriterPanel
               rightCollapsed={coWriter.rightCollapsed}
               activeProvider={coWriter.activeProvider}
@@ -746,6 +753,7 @@ export function App() {
               onExpandRight={coWriter.onExpandRight}
               onCollapseRight={coWriter.onCollapseRight}
             />
+            </div>
           )}
         </section>
       )}

@@ -319,7 +319,15 @@ select:focus-visible,
   border-left: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
+}
+
+/* When collapsed the child is a CollapsedRail, which brings its own chrome.
+   Drop the panel background/border so the rail doesn't get double-framed. */
+.cowriter-panel.is-collapsed {
+  background: none;
 }
 
 .panel-header {
