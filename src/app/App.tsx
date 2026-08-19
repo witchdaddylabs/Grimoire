@@ -538,6 +538,12 @@ export function App() {
                     vaultItems={vaultFlatItems}
                     showToast={showToast}
                     onOpenLinkedItem={(itemId) => { setActiveItemId(itemId); setLeftTab("vault"); }}
+                    providers={coWriter.providers}
+                    activeProvider={coWriter.activeProvider}
+                    providerSettings={coWriter.activeProviderSettings}
+                    providerModels={coWriter.providerModels}
+                    onProviderChange={coWriter.onProviderSelection}
+                    onRefreshModels={coWriter.onRefreshProviderModels}
                   />
                 ) : (
                   <div className="storyplan-empty"><span>Open a project to use Story Plans.</span></div>

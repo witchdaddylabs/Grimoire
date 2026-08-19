@@ -318,6 +318,7 @@ export function useCoWriter(
 
   return {
     // Provider / engine
+    providers: AI_PROVIDERS,
     activeProvider, selectedModel, providerModels, activeProviderSettings, activeProviderIsCloud,
     engineState, engineStatus, engineError, modelDraft, modelOptions, apiKeyDraft, baseUrlDraft,
     // Cowriter
@@ -346,6 +347,7 @@ export function useCoWriter(
     onDiscardAnswer: handleDiscardAnswer,
     onRewriteClean: handleRewriteClean,
     onWardAdd: handleWardAdd,
+    onRefreshProviderModels: handleProviderTest,
     onWardRemove: handleWardRemove,
     onSelectItem,
     onExpandRight: () => setRightCollapsed(false),

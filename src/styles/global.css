@@ -1962,6 +1962,222 @@ select:focus-visible,
   border-top: 1px solid var(--border-subtle);
 }
 
+.sp-provider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sp-provider-row .compact-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sp-provider-row .button {
+  flex: 0 0 auto;
+  padding: 7px 9px;
+}
+
+/* Sprint 4: regeneration + candidate review */
+.sp-regenerate {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  margin: 0 12px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: rgba(5, 6, 7, 0.3);
+}
+
+.sp-regenerate-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--parchment-secondary);
+  font-size: 12px;
+}
+
+.sp-regenerate-head svg {
+  color: var(--accent-bronze-bright);
+}
+
+.sp-regenerate-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sp-count-input {
+  width: 60px;
+  text-align: center;
+}
+
+.sp-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--parchment-muted);
+  cursor: pointer;
+}
+
+.sp-regenerate-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sp-regenerate-actions .button {
+  flex: 0 0 auto;
+}
+
+.sp-regenerate-hint {
+  color: var(--parchment-faint);
+  font-size: 11px;
+}
+
+.sp-candidate-review {
+  margin: 0 12px 12px;
+}
+
+.sp-candidate-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sp-candidate-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sp-candidate-group-title {
+  font-size: 11px;
+  color: var(--parchment-muted);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sp-candidate-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: rgba(5, 6, 7, 0.3);
+}
+
+.sp-candidate-card.historical {
+  opacity: 0.7;
+}
+
+.sp-candidate-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sp-ward-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.sp-ward-pill.ward-clean {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--ward-emerald);
+}
+
+.sp-ward-pill.ward-warn {
+  background: rgba(251, 191, 36, 0.1);
+  color: #fbbf24;
+}
+
+.sp-ward-pill.ward-block {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.sp-status-pill {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  text-transform: capitalize;
+}
+
+.sp-status-pill.pending {
+  background: rgba(251, 191, 36, 0.1);
+  color: #fbbf24;
+}
+
+.sp-status-pill.accepted {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--ward-emerald);
+}
+
+.sp-status-pill.rejected {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.sp-candidate-content {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--parchment-secondary);
+}
+
+.sp-ward-hits {
+  margin: 0;
+  padding: 6px 8px;
+  list-style: none;
+  border-radius: 4px;
+  background: rgba(239, 68, 68, 0.05);
+  font-size: 11px;
+}
+
+.sp-ward-hits li {
+  padding: 2px 0;
+}
+
+.sp-ward-hits li.ward-warn {
+  color: #fbbf24;
+}
+
+.sp-ward-hits li.ward-block {
+  color: #ef4444;
+}
+
+.sp-ward-count {
+  color: var(--parchment-muted);
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.sp-candidate-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.sp-candidate-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  color: var(--parchment-muted);
+  font-size: 12px;
+}
+
 /* Ivory theme adjustments */
 .theme-ivory .sp-beat,
 .theme-ivory .sp-scene {

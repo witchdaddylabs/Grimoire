@@ -200,6 +200,7 @@ pub(crate) struct NewCandidate<'a> {
     pub prompt_summary: Option<&'a str>,
     pub candidate_index: i64,
     pub content: &'a str,
+    pub ward_scan_json: &'a str,
 }
 
 /// Insert one candidate row and return its id. Shared by the manual store
@@ -209,8 +210,8 @@ pub(crate) fn insert_candidate(connection: &Connection, new: &NewCandidate) -> C
     connection
         .execute(
             r#"
-            INSERT INTO story_candidates (id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, status, created_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', ?9)
+            INSERT INTO story_candidates (id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, status, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', ?10)
             "#,
             params![
                 candidate_id,
@@ -221,6 +222,7 @@ pub(crate) fn insert_candidate(connection: &Connection, new: &NewCandidate) -> C
                 new.prompt_summary,
                 new.candidate_index,
                 new.content,
+                new.ward_scan_json,
                 timestamp()
             ],
         )
@@ -232,7 +234,7 @@ pub(crate) fn read_candidate(connection: &Connection, candidate_id: &str) -> Com
     connection
         .query_row(
             r#"
-            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, status, created_at
+            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, status, created_at
             FROM story_candidates WHERE id = ?1
             "#,
             params![candidate_id],
@@ -246,8 +248,10 @@ pub(crate) fn read_candidate(connection: &Connection, candidate_id: &str) -> Com
                     prompt_summary: row.get(5)?,
                     candidate_index: row.get(6)?,
                     content: row.get(7)?,
-                    status: row.get(8)?,
-                    created_at: row.get(9)?,
+                    ward_scan: serde_json::from_str(row.get::<_, String>(8)?.as_str())
+                        .unwrap_or_default(),
+                    status: row.get(9)?,
+                    created_at: row.get(10)?,
                 })
             },
         )
@@ -755,6 +759,7 @@ pub fn storyplan_candidate_store(request: StoryCandidateStoreRequest) -> Command
             prompt_summary: request.prompt_summary.as_deref(),
             candidate_index: request.candidate_index,
             content: &content,
+            ward_scan_json: "[]",
         },
     )?;
 
@@ -790,8 +795,10 @@ pub fn storyplan_candidate_list(
                 prompt_summary: row.get(5)?,
                 candidate_index: row.get(6)?,
                 content: row.get(7)?,
-                status: row.get(8)?,
-                created_at: row.get(9)?,
+                ward_scan: serde_json::from_str(row.get::<_, String>(8)?.as_str())
+                    .unwrap_or_default(),
+                status: row.get(9)?,
+                created_at: row.get(10)?,
             })
         })
         .map_err(|error| format!("Could not read story candidates: {error}"))?;
@@ -808,11 +815,26 @@ pub fn storyplan_candidate_resolve(request: StoryCandidateResolveRequest) -> Com
         return Err("Resolution must be accepted or rejected.".to_string());
     }
 
-    let (target_kind, target_id): (String, String) = connection
+    let candidate: StoryCandidate = connection
         .query_row(
-            "SELECT target_kind, target_id FROM story_candidates WHERE id = ?1",
+            "SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, status, created_at FROM story_candidates WHERE id = ?1",
             params![request.candidate_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| {
+                Ok(StoryCandidate {
+                    id: row.get(0)?,
+                    target_kind: row.get(1)?,
+                    target_id: row.get(2)?,
+                    provider: row.get(3)?,
+                    model: row.get(4)?,
+                    prompt_summary: row.get(5)?,
+                    candidate_index: row.get(6)?,
+                    content: row.get(7)?,
+                    ward_scan: serde_json::from_str(row.get::<_, String>(8)?.as_str())
+                        .unwrap_or_default(),
+                    status: row.get(9)?,
+                    created_at: row.get(10)?,
+                })
+            },
         )
         .map_err(|_| "Could not find that story candidate.".to_string())?;
 
@@ -832,15 +854,51 @@ pub fn storyplan_candidate_resolve(request: StoryCandidateResolveRequest) -> Com
                 SET status = 'rejected'
                 WHERE target_kind = ?1 AND target_id = ?2 AND id != ?3 AND status = 'pending'
                 "#,
-                params![target_kind, target_id, request.candidate_id],
+                params![candidate.target_kind, candidate.target_id, request.candidate_id],
             )
             .map_err(|error| format!("Could not resolve sibling candidates: {error}"))?;
+
+        // Apply the accepted content to the target layer (Codex P1 — accepting
+        // a candidate must write content back, not just flip the status flag).
+        match candidate.target_kind.as_str() {
+            "plan" => {
+                connection
+                    .execute(
+                        "UPDATE story_plans SET synopsis = ?1, updated_at = ?2 WHERE id = ?3",
+                        params![candidate.content, timestamp(), candidate.target_id],
+                    )
+                    .map_err(|error| {
+                        format!("Could not apply accepted plan candidate: {error}")
+                    })?;
+            }
+            "scene" | "script" => {
+                connection
+                    .execute(
+                        "UPDATE story_scenes SET summary = ?1, updated_at = ?2 WHERE id = ?3",
+                        params![candidate.content, timestamp(), candidate.target_id],
+                    )
+                    .map_err(|error| {
+                        format!("Could not apply accepted scene candidate: {error}")
+                    })?;
+            }
+            "beat" => {
+                connection
+                    .execute(
+                        "UPDATE story_beats SET content = ?1, updated_at = ?2 WHERE id = ?3",
+                        params![candidate.content, timestamp(), candidate.target_id],
+                    )
+                    .map_err(|error| {
+                        format!("Could not apply accepted beat candidate: {error}")
+                    })?;
+            }
+            _ => {}
+        }
     }
 
     connection
         .query_row(
             r#"
-            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, status, created_at
+            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, status, created_at
             FROM story_candidates WHERE id = ?1
             "#,
             params![request.candidate_id],
@@ -854,8 +912,10 @@ pub fn storyplan_candidate_resolve(request: StoryCandidateResolveRequest) -> Com
                     prompt_summary: row.get(5)?,
                     candidate_index: row.get(6)?,
                     content: row.get(7)?,
-                    status: row.get(8)?,
-                    created_at: row.get(9)?,
+                    ward_scan: serde_json::from_str(row.get::<_, String>(8)?.as_str())
+                        .unwrap_or_default(),
+                    status: row.get(9)?,
+                    created_at: row.get(10)?,
                 })
             },
         )
@@ -1078,6 +1138,15 @@ pub fn storyplan_regenerate(request: StoryRegenerateRequest) -> CommandResult<St
                 candidate_count
             ));
         }
+        let ward_scan_json = if scan_wards {
+            serde_json::to_string(&crate::db::scan_wards_internal(
+                &connection,
+                &response.text,
+            )?)
+                .map_err(|error| format!("Could not serialize ward scan: {error}"))?
+        } else {
+            "[]".to_string()
+        };
         let candidate_id = insert_candidate(
             &connection,
             &NewCandidate {
@@ -1088,6 +1157,7 @@ pub fn storyplan_regenerate(request: StoryRegenerateRequest) -> CommandResult<St
                 prompt_summary: Some(&prompt_summary),
                 candidate_index: index,
                 content: &response.text,
+                ward_scan_json: &ward_scan_json,
             },
         )?;
         let candidate = read_candidate(&connection, &candidate_id)?;

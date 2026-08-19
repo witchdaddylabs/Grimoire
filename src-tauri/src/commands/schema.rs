@@ -188,6 +188,8 @@ CREATE TABLE IF NOT EXISTS story_candidates (
   prompt_summary TEXT,
   candidate_index INTEGER NOT NULL,
   content TEXT NOT NULL,
+  /** JSON array of WardScanHit, stored when candidates are generated. */
+  ward_scan_json TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','rejected')),
   created_at TEXT NOT NULL
 );
