@@ -36,13 +36,42 @@
   box-sizing: border-box;
 }
 
+/* ── Responsive foundation ──────────────────────────────────────────────
+   This is a web app inside a native window, so the layout must track the
+   window at every size the user can drag it to — including maximised on a
+   large display. Three rules make that work, and all three were missing:
+
+   1. html/body/#root form an unbroken 100% height chain. Without it every
+      descendant that asks for a percentage height has nothing to resolve
+      against, so panels collapse and their children land wherever the
+      normal flow drops them (typically bottom-left, outside the container
+      they were designed for).
+   2. NO fixed min-width on body. A min-width larger than the window forces
+      horizontal scrolling and shoves centred content off-axis instead of
+      reflowing it.
+   3. Heights come from flex/grid distribution, not calc(100vh - magic),
+      which silently breaks whenever the header wraps or resizes.
+   ──────────────────────────────────────────────────────────────────── */
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
-  min-width: 1100px;
-  min-height: 720px;
+  /* Deliberately no min-width/min-height: the window's own minWidth/minHeight
+     in tauri.conf.json is the floor. Duplicating it here only creates scrollbars. */
+  min-width: 0;
   background:
     linear-gradient(180deg, #050607, #090b0d 44%, #050607),
     var(--obsidian-deep);
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 button {
@@ -77,21 +106,38 @@ select:focus-visible,
 }
 
 .app-shell {
-  min-height: 100vh;
+  /* Fills #root and distributes its children: fixed-height top bar, then the
+     workspace/picker takes every remaining pixel. This is what makes the app
+     track the window as it is dragged or maximised, instead of relying on a
+     calc(100vh - 104px) guess that breaks the moment the header changes height. */
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   padding: 16px;
+  gap: 0;
 }
 
 .top-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  /* Wraps instead of overflowing when the window is narrow, and never shrinks
+     out of the flex column (flex-shrink: 0) so the workspace keeps a stable
+     starting point as the window is resized. */
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  gap: 12px 20px;
   min-height: 72px;
-  padding: 0 18px;
+  padding: 10px 18px;
   border: 1px solid var(--border-subtle);
   border-radius: 18px 18px 0 0;
   background: rgba(5, 6, 7, 0.9);
   box-shadow: inset 0 1px 0 rgba(232, 229, 221, 0.035);
+}
+
+.top-bar > * {
+  min-width: 0;
 }
 
 .brand-lockup,
@@ -227,9 +273,16 @@ select:focus-visible,
 
 .workspace {
   display: grid;
-  grid-template-columns: 330px minmax(0, 1fr) 390px;
-  height: calc(100vh - 104px);
-  min-height: 616px;
+  /* Side panels shrink with the window instead of holding a fixed pixel width
+     and pushing the canvas out of view. clamp() keeps them usable at small
+     sizes and stops them ballooning when maximised on a large display. */
+  grid-template-columns:
+    clamp(220px, 22vw, 330px)
+    minmax(0, 1fr)
+    clamp(260px, 26vw, 390px);
+  /* Height comes from the parent flex column, not calc(100vh - magic). */
+  flex: 1;
+  min-height: 0;
   border: 1px solid var(--border-subtle);
   border-top: 0;
   border-radius: 0 0 18px 18px;
@@ -238,11 +291,11 @@ select:focus-visible,
 }
 
 .left-collapsed .workspace {
-  grid-template-columns: 58px minmax(0, 1fr) 390px;
+  grid-template-columns: 58px minmax(0, 1fr) clamp(260px, 26vw, 390px);
 }
 
 .right-collapsed .workspace {
-  grid-template-columns: 330px minmax(0, 1fr) 58px;
+  grid-template-columns: clamp(220px, 22vw, 330px) minmax(0, 1fr) 58px;
 }
 
 .left-collapsed.right-collapsed .workspace {
@@ -266,7 +319,15 @@ select:focus-visible,
   border-left: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
+}
+
+/* When collapsed the child is a CollapsedRail, which brings its own chrome.
+   Drop the panel background/border so the rail doesn't get double-framed. */
+.cowriter-panel.is-collapsed {
+  background: none;
 }
 
 .panel-header {
@@ -572,7 +633,9 @@ select:focus-visible,
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 42px 64px 28px;
+  /* Fluid gutters: generous on a maximised window, tight enough that the
+     writing column still has room when the app is dragged narrow. */
+  padding: clamp(20px, 3vh, 42px) clamp(20px, 5vw, 64px) clamp(18px, 2.5vh, 28px);
   background: var(--canvas-dark);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1365,12 +1428,14 @@ select:focus-visible,
 .project-picker {
   display: grid;
   place-items: center;
-  height: calc(100vh - 104px);
-  min-height: 616px;
+  /* Fills the shell's remaining height rather than guessing at it, and scrolls
+     internally if the window gets short instead of overflowing off-screen. */
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   border: 1px solid var(--border-subtle);
   border-top: 0;
   border-radius: 0 0 18px 18px;
-  overflow: hidden;
   background: rgba(9, 11, 13, 0.92);
 }
 
@@ -1559,6 +1624,93 @@ select:focus-visible,
 .theme-ivory .project-picker-create .input {
   background: rgba(255, 248, 238, 0.64);
   color: var(--canvas-ivory-ink);
+}
+
+/* ── Responsive breakpoints ─────────────────────────────────────────────
+   The app is a web UI in a resizable native window, so the three-column
+   workspace has to degrade gracefully as the window narrows rather than
+   crushing its panels until children spill out of their containers.
+
+   Order: right (Co-Writer/tools) folds away first, then the Vault rail, so
+   the Canvas — the actual writing surface — is the last thing to give up
+   space. It is the only panel that must never disappear.
+   ──────────────────────────────────────────────────────────────────── */
+
+/* Tighter gutters and a narrower tools column on smaller laptops. */
+@media (max-width: 1280px) {
+  .app-shell {
+    padding: 12px;
+  }
+
+  .workspace {
+    grid-template-columns:
+      clamp(200px, 20vw, 300px)
+      minmax(0, 1fr)
+      clamp(240px, 24vw, 330px);
+  }
+}
+
+/* Stack the tools column beneath the canvas: two columns, canvas dominant. */
+@media (max-width: 1080px) {
+  .workspace,
+  .left-collapsed .workspace,
+  .right-collapsed .workspace,
+  .left-collapsed.right-collapsed .workspace {
+    grid-template-columns: clamp(190px, 26vw, 260px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, auto);
+  }
+
+  .left-collapsed .workspace,
+  .left-collapsed.right-collapsed .workspace {
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
+
+  /* The tools panel moves to a bounded strip under both columns so it can
+     still be reached without stealing width from the canvas. */
+  .cowriter-panel {
+    grid-column: 1 / -1;
+    border-left: 0;
+    border-top: 1px solid var(--border-subtle);
+    max-height: 42vh;
+  }
+}
+
+/* Single column: Vault collapses to its rail, canvas takes the window. */
+@media (max-width: 860px) {
+  .workspace,
+  .left-collapsed .workspace,
+  .right-collapsed .workspace,
+  .left-collapsed.right-collapsed .workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+  }
+
+  .vault-panel {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    max-height: 32vh;
+  }
+
+  .cowriter-panel {
+    grid-column: auto;
+    max-height: 38vh;
+  }
+
+  .top-bar {
+    /* Stack the header groups rather than squeezing them into one line. */
+    justify-content: flex-start;
+  }
+}
+
+/* Short windows: reclaim vertical space from padding and gutters. */
+@media (max-height: 700px) {
+  .app-shell {
+    padding: 8px;
+  }
+
+  .top-bar {
+    min-height: 56px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
