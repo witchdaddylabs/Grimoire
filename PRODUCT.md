@@ -30,7 +30,7 @@ Three commitments define it:
 
 2. **Revision is convergent, not stochastic.** Every regeneration carries an edit instruction plus the context appropriate to the layer being revised. Scene and beat targets get six points — logline and synopsis, Vault character facts, the adjacent scene anchors on both sides, locked beats, the current material, and the instruction. Plan targets get the full scene-by-scene outline plus every locked beat in the plan, scoped to its owning scene; adjacent anchors and per-character facts don't apply when the outline itself is what's under revision. Either way the model revises what exists; it does not start over.
 
-3. **Nothing lands without a decision.** Variants are generated, ward-scanned, and stored as candidates. The writer compares and accepts. A candidate carrying a blocking ward cannot be accepted. Rejected candidates are retained as history.
+3. **Nothing lands without a decision.** Variants are generated, ward-scanned, and stored as candidates. The writer compares and accepts. A candidate carrying a blocking ward cannot be accepted. Scanning can be turned off per run, in which case the candidate is labelled unscanned rather than clean — the UI never reports a protection that did not run. Rejected candidates are retained as history.
 
 Story Plan is positioned as a **structural editor, not a content generator**. It does not write the book. It refuses to let the scaffolding rot while the writer does.
 

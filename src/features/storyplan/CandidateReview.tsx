@@ -2,7 +2,7 @@
 // Candidate review UI — Fabula-style convergent iteration (Sprint 4).
 import { useCallback, useEffect, useState } from "react";
 import {
-  Check, Copy, History, ShieldAlert, ShieldCheck, X,
+  Check, Copy, History, ShieldAlert, ShieldCheck, ShieldOff, X,
 } from "lucide-react";
 import { describeError } from "../../app/project";
 import {
@@ -21,9 +21,12 @@ interface CandidateReviewProps {
   refreshKey: number;
 }
 
-type WardTone = "clean" | "warn" | "block";
+type WardTone = "clean" | "warn" | "block" | "unscanned";
 
-function wardLabel(hits: WardScanHit[]): { tone: WardTone; label: string } {
+function wardLabel(hits: WardScanHit[], scanned: boolean): { tone: WardTone; label: string } {
+  // An unscanned candidate is NOT a clean one — saying "No slop detected"
+  // when the wards never ran is a false safety signal.
+  if (!scanned) return { tone: "unscanned", label: "Wards not run" };
   if (hits.length === 0) return { tone: "clean", label: "No slop detected" };
   const blocking = hits.filter((h) => h.severity === "block");
   if (blocking.length > 0) {
@@ -35,11 +38,13 @@ function wardLabel(hits: WardScanHit[]): { tone: WardTone; label: string } {
 function wardClassName(tone: WardTone): string {
   if (tone === "block") return "ward-block";
   if (tone === "warn") return "ward-warn";
+  if (tone === "unscanned") return "ward-unscanned";
   return "ward-clean";
 }
 
 function wardIcon(tone: WardTone) {
   if (tone === "clean") return <ShieldCheck size={11} aria-hidden="true" />;
+  if (tone === "unscanned") return <ShieldOff size={11} aria-hidden="true" />;
   return <ShieldAlert size={11} aria-hidden="true" />;
 }
 
@@ -154,7 +159,7 @@ export function CandidateReview({
                   <strong className="sp-candidate-group-title">Pending</strong>
                   {pending.map((candidate) => {
                     const wardHits = candidate.wardScan ?? [];
-                    const ward = wardLabel(wardHits);
+                    const ward = wardLabel(wardHits, candidate.wardScanned);
                     const acceptLabel = linkedItemId ? "Accept & Send to Canvas" : "Accept";
                     const acceptDisabled = busyId === candidate.id || ward.tone === "block";
                     return (

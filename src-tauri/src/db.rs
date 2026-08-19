@@ -6,7 +6,6 @@ use crate::models::{
 };
 use rusqlite::{params, Connection, Params};
 
-
 // -- Re-exports used by vault.rs / wards.rs --
 
 pub fn collect_named_rows<P>(
@@ -101,12 +100,7 @@ fn read_rooms(
     let mut rooms = Vec::new();
     for (room_id, room_name, room_description) in room_rows {
         let drawers = read_drawers(
-            connection,
-            &room_id,
-            wing_name,
-            hall_name,
-            &room_name,
-            item_count,
+            connection, &room_id, wing_name, hall_name, &room_name, item_count,
         )?;
         rooms.push(VaultRoomNode {
             id: room_id,
@@ -197,10 +191,7 @@ fn read_items(
     Ok(items)
 }
 
-pub fn read_item_detail(
-    connection: &Connection,
-    item_id: &str,
-) -> CommandResult<VaultItemDetail> {
+pub fn read_item_detail(connection: &Connection, item_id: &str) -> CommandResult<VaultItemDetail> {
     connection
         .query_row(
             r#"
@@ -328,7 +319,8 @@ pub fn next_sort_order(
     parent_column: &str,
     parent_id: &str,
 ) -> CommandResult<i64> {
-    let query = format!("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM {table} WHERE {parent_column} = ?1");
+    let query =
+        format!("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM {table} WHERE {parent_column} = ?1");
     connection
         .query_row(&query, params![parent_id], |row| row.get(0))
         .map_err(|error| format!("Could not calculate sort order: {error}"))
@@ -497,10 +489,7 @@ pub fn search_chunks_internal(
     Ok(results)
 }
 
-pub fn scan_wards_internal(
-    connection: &Connection,
-    text: &str,
-) -> CommandResult<WardScanResponse> {
+pub fn scan_wards_internal(connection: &Connection, text: &str) -> CommandResult<WardScanResponse> {
     let words = read_banned_words(connection)?;
     Ok(crate::llm::scan_wards(&words, text))
 }
@@ -642,7 +631,13 @@ mod tests {
         .unwrap();
     }
 
-    fn insert_test_item(conn: &Connection, id: &str, drawer_id: &str, title: &str, item_type: &str) {
+    fn insert_test_item(
+        conn: &Connection,
+        id: &str,
+        drawer_id: &str,
+        title: &str,
+        item_type: &str,
+    ) {
         conn.execute(
             "INSERT INTO items (id, drawer_id, title, item_type, content, plain_text, word_count, memory_enabled, source_kind, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, '', '', 0, 1, 'manual', 0, '', '')",
             params![id, drawer_id, title, item_type],
@@ -706,8 +701,14 @@ mod tests {
         assert_eq!(tree.wings[0].halls[0].rooms.len(), 1);
         assert_eq!(tree.wings[0].halls[0].rooms[0].drawers.len(), 1);
         assert_eq!(tree.wings[0].halls[0].rooms[0].drawers[0].items.len(), 2);
-        assert_eq!(tree.wings[0].halls[0].rooms[0].drawers[0].items[0].title, "Alice");
-        assert_eq!(tree.wings[0].halls[0].rooms[0].drawers[0].items[1].title, "Bob");
+        assert_eq!(
+            tree.wings[0].halls[0].rooms[0].drawers[0].items[0].title,
+            "Alice"
+        );
+        assert_eq!(
+            tree.wings[0].halls[0].rooms[0].drawers[0].items[1].title,
+            "Bob"
+        );
     }
 
     #[test]
@@ -836,14 +837,22 @@ mod tests {
         .unwrap();
 
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM item_chunks WHERE item_id = 'i1'", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM item_chunks WHERE item_id = 'i1'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(count, 1);
 
         clear_item_chunks(&conn, "i1").unwrap();
 
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM item_chunks WHERE item_id = 'i1'", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM item_chunks WHERE item_id = 'i1'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(count, 0);
     }
@@ -859,7 +868,11 @@ mod tests {
     fn character_search_filters_before_limit() {
         let conn = test_db();
         // FTS rows do not require the item FK, so this isolates query ordering.
-        for (index, item_type) in [("note", "note"), ("chapter", "chapter"), ("character", "character")] {
+        for (index, item_type) in [
+            ("note", "note"),
+            ("chapter", "chapter"),
+            ("character", "character"),
+        ] {
             conn.execute(
                 "INSERT INTO item_chunks_fts (chunk_id, item_id, title, item_type, vault_path, text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![

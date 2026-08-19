@@ -38,7 +38,10 @@ pub(crate) fn read_plan(connection: &Connection, plan_id: &str) -> CommandResult
         .map_err(|_| "Could not find that story plan.".to_string())
 }
 
-pub(crate) fn read_scenes(connection: &Connection, plan_id: &str) -> CommandResult<Vec<StoryScene>> {
+pub(crate) fn read_scenes(
+    connection: &Connection,
+    plan_id: &str,
+) -> CommandResult<Vec<StoryScene>> {
     let mut statement = connection
         .prepare(
             r#"
@@ -102,7 +105,10 @@ pub(crate) fn read_beats(connection: &Connection, scene_id: &str) -> CommandResu
         .map_err(|error| format!("Could not read story beats: {error}"))
 }
 
-pub(crate) fn read_plan_detail(connection: &Connection, plan_id: &str) -> CommandResult<StoryPlanDetail> {
+pub(crate) fn read_plan_detail(
+    connection: &Connection,
+    plan_id: &str,
+) -> CommandResult<StoryPlanDetail> {
     let plan = read_plan(connection, plan_id)?;
     let scenes = read_scenes(connection, plan_id)?;
     let mut scenes_with_beats = Vec::with_capacity(scenes.len());
@@ -201,17 +207,22 @@ pub(crate) struct NewCandidate<'a> {
     pub candidate_index: i64,
     pub content: &'a str,
     pub ward_scan_json: &'a str,
+    /// Whether wards actually ran for this candidate.
+    pub ward_scanned: bool,
 }
 
 /// Insert one candidate row and return its id. Shared by the manual store
 /// command and the regeneration pipeline.
-pub(crate) fn insert_candidate(connection: &Connection, new: &NewCandidate) -> CommandResult<String> {
+pub(crate) fn insert_candidate(
+    connection: &Connection,
+    new: &NewCandidate,
+) -> CommandResult<String> {
     let candidate_id = format!("candidate_{}", timestamp_nanos());
     connection
         .execute(
             r#"
-            INSERT INTO story_candidates (id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, status, created_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', ?10)
+            INSERT INTO story_candidates (id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, ward_scanned, status, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pending', ?11)
             "#,
             params![
                 candidate_id,
@@ -223,6 +234,7 @@ pub(crate) fn insert_candidate(connection: &Connection, new: &NewCandidate) -> C
                 new.candidate_index,
                 new.content,
                 new.ward_scan_json,
+                if new.ward_scanned { 1 } else { 0 },
                 timestamp()
             ],
         )
@@ -230,11 +242,14 @@ pub(crate) fn insert_candidate(connection: &Connection, new: &NewCandidate) -> C
     Ok(candidate_id)
 }
 
-pub(crate) fn read_candidate(connection: &Connection, candidate_id: &str) -> CommandResult<StoryCandidate> {
+pub(crate) fn read_candidate(
+    connection: &Connection,
+    candidate_id: &str,
+) -> CommandResult<StoryCandidate> {
     connection
         .query_row(
             r#"
-            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, status, created_at
+            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, ward_scanned, status, created_at
             FROM story_candidates WHERE id = ?1
             "#,
             params![candidate_id],
@@ -250,8 +265,9 @@ pub(crate) fn read_candidate(connection: &Connection, candidate_id: &str) -> Com
                     content: row.get(7)?,
                     ward_scan: serde_json::from_str(row.get::<_, String>(8)?.as_str())
                         .unwrap_or_default(),
-                    status: row.get(9)?,
-                    created_at: row.get(10)?,
+                    ward_scanned: row.get::<_, i64>(9)? != 0,
+                    status: row.get(10)?,
+                    created_at: row.get(11)?,
                 })
             },
         )
@@ -356,14 +372,22 @@ pub fn storyplan_update(request: StoryPlanUpdateRequest) -> CommandResult<StoryP
     let logline = match request.logline {
         Some(value) => {
             let trimmed = value.trim().to_string();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         }
         None => current.logline,
     };
     let synopsis = match request.synopsis {
         Some(value) => {
             let trimmed = value.trim().to_string();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         }
         None => current.synopsis,
     };
@@ -375,7 +399,14 @@ pub fn storyplan_update(request: StoryPlanUpdateRequest) -> CommandResult<StoryP
             SET project_name = ?1, logline = ?2, synopsis = ?3, status = ?4, updated_at = ?5
             WHERE id = ?6
             "#,
-            params![project_name, logline, synopsis, status, timestamp(), request.plan_id],
+            params![
+                project_name,
+                logline,
+                synopsis,
+                status,
+                timestamp(),
+                request.plan_id
+            ],
         )
         .map_err(|error| format!("Could not update story plan: {error}"))?;
 
@@ -389,7 +420,11 @@ pub fn storyplan_delete(request: StoryPlanDeleteRequest) -> CommandResult<StoryP
     // Candidates are polymorphic (no FK), so collect dependent ids first.
     let mut target_ids: Vec<String> = vec![request.plan_id.clone()];
     for scene in read_scenes(&connection, &request.plan_id)? {
-        target_ids.extend(read_beats(&connection, &scene.id)?.into_iter().map(|beat| beat.id));
+        target_ids.extend(
+            read_beats(&connection, &scene.id)?
+                .into_iter()
+                .map(|beat| beat.id),
+        );
         target_ids.push(scene.id);
     }
 
@@ -465,21 +500,33 @@ pub fn storyplan_scene_update(request: StorySceneUpdateRequest) -> CommandResult
     let setting = match request.setting {
         Some(value) => {
             let trimmed = value.trim().to_string();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         }
         None => current.1,
     };
     let summary = match request.summary {
         Some(value) => {
             let trimmed = value.trim().to_string();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         }
         None => current.2,
     };
     let linked_item_id = match request.linked_item_id {
         Some(value) => {
             let trimmed = value.trim().to_string();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         }
         None => current.3,
     };
@@ -491,7 +538,14 @@ pub fn storyplan_scene_update(request: StorySceneUpdateRequest) -> CommandResult
             SET title = ?1, setting = ?2, summary = ?3, linked_item_id = ?4, updated_at = ?5
             WHERE id = ?6
             "#,
-            params![title, setting, summary, linked_item_id, timestamp(), request.scene_id],
+            params![
+                title,
+                setting,
+                summary,
+                linked_item_id,
+                timestamp(),
+                request.scene_id
+            ],
         )
         .map_err(|error| format!("Could not update story scene: {error}"))?;
 
@@ -643,7 +697,11 @@ pub fn storyplan_beat_lock(request: StoryBeatLockRequest) -> CommandResult<Story
     connection
         .execute(
             "UPDATE story_beats SET locked = ?1, updated_at = ?2 WHERE id = ?3",
-            params![if request.locked { 1 } else { 0 }, timestamp(), request.beat_id],
+            params![
+                if request.locked { 1 } else { 0 },
+                timestamp(),
+                request.beat_id
+            ],
         )
         .map_err(|error| format!("Could not update beat lock: {error}"))?;
 
@@ -717,13 +775,25 @@ pub fn storyplan_reorder(request: StoryReorderRequest) -> CommandResult<StoryPla
     let plan_id = match request.kind.trim().to_lowercase().as_str() {
         "scene" => {
             let plan_id = plan_id_for_scene(&connection, &request.id)?;
-            swap_sort_order(&connection, "story_scenes", "plan_id", &request.id, &direction)?;
+            swap_sort_order(
+                &connection,
+                "story_scenes",
+                "plan_id",
+                &request.id,
+                &direction,
+            )?;
             plan_id
         }
         "beat" => {
             let scene_id = scene_id_for_beat(&connection, &request.id)?;
             let plan_id = plan_id_for_scene(&connection, &scene_id)?;
-            swap_sort_order(&connection, "story_beats", "scene_id", &request.id, &direction)?;
+            swap_sort_order(
+                &connection,
+                "story_beats",
+                "scene_id",
+                &request.id,
+                &direction,
+            )?;
             plan_id
         }
         other => {
@@ -738,7 +808,9 @@ pub fn storyplan_reorder(request: StoryReorderRequest) -> CommandResult<StoryPla
 // ── Candidate commands ──
 
 #[tauri::command]
-pub fn storyplan_candidate_store(request: StoryCandidateStoreRequest) -> CommandResult<StoryCandidate> {
+pub fn storyplan_candidate_store(
+    request: StoryCandidateStoreRequest,
+) -> CommandResult<StoryCandidate> {
     let connection = open_project_database(&request.project_path)?;
     let target_kind = request.target_kind.trim().to_lowercase();
     if !["plan", "scene", "beat", "script"].contains(&target_kind.as_str()) {
@@ -759,7 +831,9 @@ pub fn storyplan_candidate_store(request: StoryCandidateStoreRequest) -> Command
             prompt_summary: request.prompt_summary.as_deref(),
             candidate_index: request.candidate_index,
             content: &content,
+            // Manual store does not run wards — never claim it did.
             ward_scan_json: "[]",
+            ward_scanned: false,
         },
     )?;
 
@@ -779,7 +853,7 @@ pub(crate) fn read_candidates_for_target(
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, status, created_at
+            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, ward_scanned, status, created_at
             FROM story_candidates
             WHERE target_kind = ?1 AND target_id = ?2
             ORDER BY candidate_index ASC, created_at DESC
@@ -800,8 +874,9 @@ pub(crate) fn read_candidates_for_target(
                 content: row.get(7)?,
                 ward_scan: serde_json::from_str(row.get::<_, String>(8)?.as_str())
                     .unwrap_or_default(),
-                status: row.get(9)?,
-                created_at: row.get(10)?,
+                ward_scanned: row.get::<_, i64>(9)? != 0,
+                status: row.get(10)?,
+                created_at: row.get(11)?,
             })
         })
         .map_err(|error| format!("Could not read story candidates: {error}"))?;
@@ -821,7 +896,9 @@ pub fn storyplan_candidate_list(
 }
 
 #[tauri::command]
-pub fn storyplan_candidate_resolve(request: StoryCandidateResolveRequest) -> CommandResult<StoryCandidate> {
+pub fn storyplan_candidate_resolve(
+    request: StoryCandidateResolveRequest,
+) -> CommandResult<StoryCandidate> {
     let connection = open_project_database(&request.project_path)?;
     let resolution = request.resolution.trim().to_lowercase();
     if resolution != "accepted" && resolution != "rejected" {
@@ -830,7 +907,7 @@ pub fn storyplan_candidate_resolve(request: StoryCandidateResolveRequest) -> Com
 
     let candidate: StoryCandidate = connection
         .query_row(
-            "SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, status, created_at FROM story_candidates WHERE id = ?1",
+            "SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, ward_scanned, status, created_at FROM story_candidates WHERE id = ?1",
             params![request.candidate_id],
             |row| {
                 Ok(StoryCandidate {
@@ -844,8 +921,9 @@ pub fn storyplan_candidate_resolve(request: StoryCandidateResolveRequest) -> Com
                     content: row.get(7)?,
                     ward_scan: serde_json::from_str(row.get::<_, String>(8)?.as_str())
                         .unwrap_or_default(),
-                    status: row.get(9)?,
-                    created_at: row.get(10)?,
+                    ward_scanned: row.get::<_, i64>(9)? != 0,
+                    status: row.get(10)?,
+                    created_at: row.get(11)?,
                 })
             },
         )
@@ -867,7 +945,11 @@ pub fn storyplan_candidate_resolve(request: StoryCandidateResolveRequest) -> Com
                 SET status = 'rejected'
                 WHERE target_kind = ?1 AND target_id = ?2 AND id != ?3 AND status = 'pending'
                 "#,
-                params![candidate.target_kind, candidate.target_id, request.candidate_id],
+                params![
+                    candidate.target_kind,
+                    candidate.target_id,
+                    request.candidate_id
+                ],
             )
             .map_err(|error| format!("Could not resolve sibling candidates: {error}"))?;
 
@@ -880,9 +962,7 @@ pub fn storyplan_candidate_resolve(request: StoryCandidateResolveRequest) -> Com
                         "UPDATE story_plans SET synopsis = ?1, updated_at = ?2 WHERE id = ?3",
                         params![candidate.content, timestamp(), candidate.target_id],
                     )
-                    .map_err(|error| {
-                        format!("Could not apply accepted plan candidate: {error}")
-                    })?;
+                    .map_err(|error| format!("Could not apply accepted plan candidate: {error}"))?;
             }
             "scene" | "script" => {
                 connection
@@ -900,9 +980,7 @@ pub fn storyplan_candidate_resolve(request: StoryCandidateResolveRequest) -> Com
                         "UPDATE story_beats SET content = ?1, updated_at = ?2 WHERE id = ?3",
                         params![candidate.content, timestamp(), candidate.target_id],
                     )
-                    .map_err(|error| {
-                        format!("Could not apply accepted beat candidate: {error}")
-                    })?;
+                    .map_err(|error| format!("Could not apply accepted beat candidate: {error}"))?;
             }
             _ => {}
         }
@@ -911,7 +989,7 @@ pub fn storyplan_candidate_resolve(request: StoryCandidateResolveRequest) -> Com
     connection
         .query_row(
             r#"
-            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, status, created_at
+            SELECT id, target_kind, target_id, provider, model, prompt_summary, candidate_index, content, ward_scan_json, ward_scanned, status, created_at
             FROM story_candidates WHERE id = ?1
             "#,
             params![request.candidate_id],
@@ -927,8 +1005,9 @@ pub fn storyplan_candidate_resolve(request: StoryCandidateResolveRequest) -> Com
                     content: row.get(7)?,
                     ward_scan: serde_json::from_str(row.get::<_, String>(8)?.as_str())
                         .unwrap_or_default(),
-                    status: row.get(9)?,
-                    created_at: row.get(10)?,
+                    ward_scanned: row.get::<_, i64>(9)? != 0,
+                    status: row.get(10)?,
+                    created_at: row.get(11)?,
                 })
             },
         )
@@ -992,7 +1071,9 @@ fn resolve_regeneration_context(
     instruction: &str,
 ) -> CommandResult<crate::storyplan_context::RegenerationContext> {
     match target_kind {
-        "plan" => crate::storyplan_context::assemble_plan_context(connection, target_id, instruction),
+        "plan" => {
+            crate::storyplan_context::assemble_plan_context(connection, target_id, instruction)
+        }
         "scene" | "script" => {
             crate::storyplan_context::assemble_scene_context(connection, target_id, instruction)
         }
@@ -1034,8 +1115,27 @@ fn build_regeneration_user_prompt(
                 "Current beat [{}]:\n{}",
                 beat.beat_type, beat.content
             ));
+            // Beat targets need the rest of the scene for intra-scene
+            // continuity: without the siblings the model cannot avoid
+            // contradicting or duplicating the beats either side of this one
+            // (Codex catch on PR #27). Only the targeted beat may change.
+            let siblings: Vec<&crate::models::StoryBeat> =
+                beats.iter().filter(|other| other.id != beat.id).collect();
+            if !siblings.is_empty() {
+                let mut context_lines = String::from(
+                    "Surrounding beats of this scene, for continuity only — do NOT rewrite them; beats marked LOCKED are immutable:",
+                );
+                for other in siblings {
+                    let marker = if other.locked { " (LOCKED)" } else { "" };
+                    context_lines.push_str(&format!(
+                        "\n- [{}]{} {}",
+                        other.beat_type, marker, other.content
+                    ));
+                }
+                parts.push(context_lines);
+            }
             parts.push(format!(
-                "Writer's edit instruction: {}\n\nRegenerate this beat now.",
+                "Writer's edit instruction: {}\n\nRegenerate this beat now — return only the revised beat, not the surrounding ones.",
                 context.instruction
             ));
         }
@@ -1105,15 +1205,23 @@ fn build_regeneration_user_prompt(
 }
 
 #[tauri::command]
-pub fn storyplan_regenerate(request: StoryRegenerateRequest) -> CommandResult<StoryRegenerateResponse> {
+pub fn storyplan_regenerate(
+    request: StoryRegenerateRequest,
+) -> CommandResult<StoryRegenerateResponse> {
     let connection = open_project_database(&request.project_path)?;
     let target_kind = request.target_kind.trim().to_lowercase();
 
     let instruction = request.instruction.trim().to_string();
     if instruction.is_empty() {
-        return Err("Give the regeneration an edit instruction — that is what makes it converge.".to_string());
+        return Err(
+            "Give the regeneration an edit instruction — that is what makes it converge."
+                .to_string(),
+        );
     }
-    let candidate_count = request.candidate_count.unwrap_or(3).clamp(1, MAX_CANDIDATES);
+    let candidate_count = request
+        .candidate_count
+        .unwrap_or(3)
+        .clamp(1, MAX_CANDIDATES);
 
     // Privacy gate: regeneration sends plan + Vault content to the provider,
     // so cloud targets need the same disclosure + key checks as Co-Writer.
@@ -1124,9 +1232,8 @@ pub fn storyplan_regenerate(request: StoryRegenerateRequest) -> CommandResult<St
     let system_prompt = crate::storyplan_context::regeneration_system_prompt(&context);
     let user_prompt =
         build_regeneration_user_prompt(&connection, &request, &target_kind, &context)?;
-    let prompt_summary = truncate_prompt_summary(&format!(
-        "regenerate {target_kind}: {instruction}"
-    ));
+    let prompt_summary =
+        truncate_prompt_summary(&format!("regenerate {target_kind}: {instruction}"));
 
     let scan_wards = request.scan_wards.unwrap_or(true);
     let mut candidates: Vec<StoryRegenerateCandidate> = Vec::new();
@@ -1156,7 +1263,7 @@ pub fn storyplan_regenerate(request: StoryRegenerateRequest) -> CommandResult<St
                 &connection,
                 &response.text,
             )?)
-                .map_err(|error| format!("Could not serialize ward scan: {error}"))?
+            .map_err(|error| format!("Could not serialize ward scan: {error}"))?
         } else {
             "[]".to_string()
         };
@@ -1171,6 +1278,7 @@ pub fn storyplan_regenerate(request: StoryRegenerateRequest) -> CommandResult<St
                 candidate_index: index,
                 content: &response.text,
                 ward_scan_json: &ward_scan_json,
+                ward_scanned: scan_wards,
             },
         )?;
         let candidate = read_candidate(&connection, &candidate_id)?;
@@ -1243,7 +1351,10 @@ mod tests {
         // Re-applying must not error (IF NOT EXISTS everywhere).
         conn.execute_batch(STORY_PLAN_SCHEMA).unwrap();
         assert_eq!(
-            count(&conn, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name LIKE 'story_%'"),
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name LIKE 'story_%'"
+            ),
             4
         );
     }
@@ -1284,7 +1395,8 @@ mod tests {
         insert_scene(&conn, "scene_1", "plan_1");
         insert_beat(&conn, "beat_1", "scene_1", 0);
 
-        conn.execute("DELETE FROM story_plans WHERE id = 'plan_1'", []).unwrap();
+        conn.execute("DELETE FROM story_plans WHERE id = 'plan_1'", [])
+            .unwrap();
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM story_scenes"), 0);
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM story_beats"), 0);
     }
@@ -1296,7 +1408,8 @@ mod tests {
         insert_scene(&conn, "scene_1", "plan_1");
         insert_beat(&conn, "beat_1", "scene_1", 0);
 
-        conn.execute("DELETE FROM story_scenes WHERE id = 'scene_1'", []).unwrap();
+        conn.execute("DELETE FROM story_scenes WHERE id = 'scene_1'", [])
+            .unwrap();
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM story_plans"), 1);
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM story_beats"), 0);
     }
@@ -1308,7 +1421,11 @@ mod tests {
         insert_scene(&conn, "scene_1", "plan_1");
         insert_beat(&conn, "beat_1", "scene_1", 0);
 
-        conn.execute("UPDATE story_beats SET locked = 1, content = 'New content' WHERE id = 'beat_1'", []).unwrap();
+        conn.execute(
+            "UPDATE story_beats SET locked = 1, content = 'New content' WHERE id = 'beat_1'",
+            [],
+        )
+        .unwrap();
 
         let beats = read_beats(&conn, "scene_1").unwrap();
         assert_eq!(beats.len(), 1);
@@ -1323,11 +1440,23 @@ mod tests {
         insert_scene(&conn, "scene_1", "plan_1");
         insert_beat(&conn, "beat_1", "scene_1", 0);
 
-        let json = characters_to_json(Some(vec!["  Mara ".to_string(), "Jonah".to_string(), " ".to_string()])).unwrap();
-        conn.execute("UPDATE story_beats SET characters = ?1 WHERE id = 'beat_1'", params![json]).unwrap();
+        let json = characters_to_json(Some(vec![
+            "  Mara ".to_string(),
+            "Jonah".to_string(),
+            " ".to_string(),
+        ]))
+        .unwrap();
+        conn.execute(
+            "UPDATE story_beats SET characters = ?1 WHERE id = 'beat_1'",
+            params![json],
+        )
+        .unwrap();
 
         let beats = read_beats(&conn, "scene_1").unwrap();
-        assert_eq!(beats[0].characters, Some(vec!["Mara".to_string(), "Jonah".to_string()]));
+        assert_eq!(
+            beats[0].characters,
+            Some(vec!["Mara".to_string(), "Jonah".to_string()])
+        );
     }
 
     #[test]
@@ -1336,7 +1465,10 @@ mod tests {
         insert_plan(&conn, "plan_1");
         insert_scene(&conn, "scene_1", "plan_1");
 
-        for (index, id) in ["candidate_1", "candidate_2", "candidate_3"].iter().enumerate() {
+        for (index, id) in ["candidate_1", "candidate_2", "candidate_3"]
+            .iter()
+            .enumerate()
+        {
             conn.execute(
                 "INSERT INTO story_candidates (id, target_kind, target_id, provider, model, candidate_index, content, status, created_at) VALUES (?1, 'scene', 'scene_1', 'anthropic', 'claude-sonnet-4-5', ?2, 'variant text', 'pending', '1')",
                 params![id, index as i64],
@@ -1345,16 +1477,38 @@ mod tests {
         }
 
         // Accept candidate_2.
-        conn.execute("UPDATE story_candidates SET status = 'accepted' WHERE id = 'candidate_2'", []).unwrap();
+        conn.execute(
+            "UPDATE story_candidates SET status = 'accepted' WHERE id = 'candidate_2'",
+            [],
+        )
+        .unwrap();
         conn.execute(
             "UPDATE story_candidates SET status = 'rejected' WHERE target_kind = 'scene' AND target_id = 'scene_1' AND id != 'candidate_2' AND status = 'pending'",
             [],
         )
         .unwrap();
 
-        assert_eq!(count(&conn, "SELECT COUNT(*) FROM story_candidates WHERE status = 'pending'"), 0);
-        assert_eq!(count(&conn, "SELECT COUNT(*) FROM story_candidates WHERE status = 'accepted'"), 1);
-        assert_eq!(count(&conn, "SELECT COUNT(*) FROM story_candidates WHERE status = 'rejected'"), 2);
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM story_candidates WHERE status = 'pending'"
+            ),
+            0
+        );
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM story_candidates WHERE status = 'accepted'"
+            ),
+            1
+        );
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM story_candidates WHERE status = 'rejected'"
+            ),
+            2
+        );
     }
 
     #[test]
@@ -1380,6 +1534,7 @@ mod tests {
                 candidate_index: 0,
                 content: "Variant prose.",
                 ward_scan_json: hits,
+                ward_scanned: true,
             },
         )
         .unwrap();
@@ -1403,6 +1558,130 @@ mod tests {
         assert_eq!(candidate.ward_scan.len(), 1);
         assert_eq!(candidate.ward_scan[0].value, "very");
         assert_eq!(candidate.ward_scan[0].count, 2);
+    }
+
+    #[test]
+    fn beat_prompt_includes_sibling_beats_for_continuity() {
+        // Codex P2 on PR #27: beat regeneration sent ONLY the targeted beat,
+        // so the model could not see the beats either side of it and had no
+        // way to preserve intra-scene continuity.
+        let conn = test_db();
+        insert_plan(&conn, "plan_1");
+        insert_scene(&conn, "scene_1", "plan_1");
+        // NB: insert_beat's 4th arg is `locked`, NOT sort_order — all three
+        // start unlocked and beat_3 is locked explicitly below.
+        insert_beat(&conn, "beat_1", "scene_1", 0);
+        insert_beat(&conn, "beat_2", "scene_1", 0);
+        insert_beat(&conn, "beat_3", "scene_1", 0);
+        conn.execute(
+            "UPDATE story_beats SET content = 'Mara opens the door.', sort_order = 0 WHERE id = 'beat_1'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE story_beats SET content = 'They argue about the money.', sort_order = 1 WHERE id = 'beat_2'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE story_beats SET content = 'She leaves without it.', sort_order = 2, locked = 1 WHERE id = 'beat_3'",
+            [],
+        )
+        .unwrap();
+
+        let request = StoryRegenerateRequest {
+            project_path: "/tmp/x".into(),
+            target_kind: "beat".into(),
+            target_id: "beat_2".into(),
+            instruction: "raise the tension".into(),
+            provider: crate::models::AiProviderKind::Ollama,
+            model: "llama3.2".into(),
+            candidate_count: Some(1),
+            scan_wards: None,
+        };
+        let context =
+            resolve_regeneration_context(&conn, "beat", "beat_2", "raise the tension").unwrap();
+        let prompt = build_regeneration_user_prompt(&conn, &request, "beat", &context).unwrap();
+
+        // The targeted beat is the one being revised.
+        assert!(prompt.contains("They argue about the money."));
+        // Siblings must be present for continuity...
+        assert!(
+            prompt.contains("Mara opens the door."),
+            "preceding sibling beat must be in the prompt"
+        );
+        assert!(
+            prompt.contains("She leaves without it."),
+            "following sibling beat must be in the prompt"
+        );
+        // ...but explicitly marked as not-to-be-rewritten, and locked ones flagged.
+        assert!(prompt.contains("do NOT rewrite them"));
+        assert!(prompt.contains("(LOCKED)"));
+    }
+
+    #[test]
+    fn candidate_records_whether_wards_actually_ran() {
+        // Codex P2 on PR #27: with "Scan wards" unchecked the candidate stored
+        // an empty ward list, and the UI then labelled it "No slop detected" —
+        // a false safety signal. ward_scanned makes the distinction explicit.
+        //
+        // SCOPE LIMIT: this covers the storage + read round trip only. The
+        // wiring in storyplan_regenerate (ward_scanned: scan_wards) cannot be
+        // unit-tested because that command calls a live provider — verified by
+        // reading the call site, and it is on the live-run QA checklist.
+        let conn = test_db();
+        insert_plan(&conn, "plan_1");
+        insert_scene(&conn, "scene_1", "plan_1");
+
+        insert_candidate(
+            &conn,
+            &NewCandidate {
+                target_kind: "scene",
+                target_id: "scene_1",
+                provider: "ollama",
+                model: "llama3.2",
+                prompt_summary: None,
+                candidate_index: 0,
+                content: "Scanned and clean.",
+                ward_scan_json: "[]",
+                ward_scanned: true,
+            },
+        )
+        .unwrap();
+        insert_candidate(
+            &conn,
+            &NewCandidate {
+                target_kind: "scene",
+                target_id: "scene_1",
+                provider: "ollama",
+                model: "llama3.2",
+                prompt_summary: None,
+                candidate_index: 1,
+                content: "Never scanned.",
+                ward_scan_json: "[]",
+                ward_scanned: false,
+            },
+        )
+        .unwrap();
+
+        let rows = read_candidates_for_target(&conn, "scene", "scene_1").unwrap();
+        assert_eq!(rows.len(), 2);
+        let scanned = rows
+            .iter()
+            .find(|c| c.content == "Scanned and clean.")
+            .unwrap();
+        let skipped = rows.iter().find(|c| c.content == "Never scanned.").unwrap();
+
+        // Both have zero hits — only the flag separates "clean" from "unknown".
+        assert!(scanned.ward_scan.is_empty());
+        assert!(skipped.ward_scan.is_empty());
+        assert!(scanned.ward_scanned, "wards ran for this candidate");
+        assert!(
+            !skipped.ward_scanned,
+            "an unscanned candidate must not be reported as clean"
+        );
+        // created_at must still map correctly with the extra column in place.
+        assert!(!scanned.created_at.is_empty());
     }
 
     #[test]
@@ -1483,7 +1762,9 @@ mod tests {
         insert_beat(&conn, "beat_1", "scene_1", 0);
 
         let context = resolve_regeneration_context(&conn, "beat", "beat_1", "sharpen").unwrap();
-        let scene = context.scene.expect("beat targets must resolve to their scene");
+        let scene = context
+            .scene
+            .expect("beat targets must resolve to their scene");
         assert_eq!(scene.id, "scene_1");
     }
 
@@ -1504,7 +1785,8 @@ mod tests {
             candidate_count: Some(1),
             scan_wards: None,
         };
-        let context = resolve_regeneration_context(&conn, "beat", "beat_locked", "rewrite it").unwrap();
+        let context =
+            resolve_regeneration_context(&conn, "beat", "beat_locked", "rewrite it").unwrap();
         let result = build_regeneration_user_prompt(&conn, &request, "beat", &context);
         assert!(result.is_err(), "locked beats must refuse regeneration");
         assert!(result.unwrap_err().contains("pinned"));
@@ -1526,9 +1808,13 @@ mod tests {
             candidate_count: Some(1),
             scan_wards: None,
         };
-        let context = resolve_regeneration_context(&conn, "script", "scene_1", "make it bleed").unwrap();
+        let context =
+            resolve_regeneration_context(&conn, "script", "scene_1", "make it bleed").unwrap();
         let result = build_regeneration_user_prompt(&conn, &request, "script", &context);
-        assert!(result.is_err(), "script targets need a linked manuscript item");
+        assert!(
+            result.is_err(),
+            "script targets need a linked manuscript item"
+        );
         assert!(result.unwrap_err().contains("Link this scene"));
     }
 
@@ -1585,7 +1871,8 @@ mod tests {
             scan_wards: None,
         };
         let context =
-            resolve_regeneration_context(&conn, "scene", "scene_1", "tighten the dialogue").unwrap();
+            resolve_regeneration_context(&conn, "scene", "scene_1", "tighten the dialogue")
+                .unwrap();
         let prompt = build_regeneration_user_prompt(&conn, &request, "scene", &context).unwrap();
 
         // The model must see the current beats to revise them (Codex catch).

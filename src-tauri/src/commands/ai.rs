@@ -207,7 +207,8 @@ pub fn ensure_cloud_provider_ready(
     }
     if !settings.api_key_present {
         return Err(
-            "Add an API key for this cloud provider before sending a Co-Writer request.".to_string(),
+            "Add an API key for this cloud provider before sending a Co-Writer request."
+                .to_string(),
         );
     }
     Ok(())

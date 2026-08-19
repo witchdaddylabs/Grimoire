@@ -76,6 +76,8 @@ export type StoryCandidate = {
   candidateIndex: number;
   content: string;
   wardScan: WardScanHit[];
+  /** False when the writer opted out of ward scanning for this run. */
+  wardScanned: boolean;
   status: StoryCandidateStatus;
   createdAt: string;
 };

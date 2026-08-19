@@ -117,13 +117,13 @@ Regenerating a **scene or beat** sends six points:
 5. Every pinned beat in that scene, as hard constraints
 6. Your edit instruction
 
-The scene's current beats go in too, so "tighten the dialogue" has actual dialogue to tighten.
+The scene's current beats go in too, so "tighten the dialogue" has actual dialogue to tighten. When you regenerate a single beat, its siblings go in as read-only context — the model can see what comes either side of it, but only the targeted beat is returned.
 
 Regenerating the **whole plan** is a different job, so it gets a different context: your logline and synopsis, the complete scene-by-scene outline, and every pinned beat across the plan — each labelled with the scene that owns it. Adjacent-scene anchors and per-character Vault facts don't apply at this level, because the plan *is* the thing being restructured. Pinned beats still hold.
 
 ### Compare before you commit
 
-Each run produces up to five variants at a spread of temperatures — the first conservative, the last loosest. Nothing is applied automatically. Each variant is scanned against your Wards, and a variant with a blocking ward can't be accepted until you deal with it. You read them, pick one, and only then does your plan change.
+Each run produces up to five variants at a spread of temperatures — the first conservative, the last loosest. Nothing is applied automatically. Variants are scanned against your Wards by default, and a variant with a blocking ward can't be accepted until you deal with it. You can turn scanning off for a run if you'd rather move fast — those variants are labelled **"Wards not run"** rather than clean, so an unchecked variant is never mistaken for a passed one. You read them, pick one, and only then does your plan change.
 
 Accepting a variant writes it back to the layer you targeted — plan synopsis, scene summary, or beat content. If the scene is linked to a Canvas item, Grimoire offers to take you there. Rejected variants stay in a history drawer, so nothing is lost.
 

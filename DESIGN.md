@@ -225,9 +225,12 @@ The Story Plan tree (Plan → Scenes → Beats) follows the same dark-neutral st
 
 **Candidate ward pills** follow the existing status-chip vocabulary, not a new one:
 
-- **Emerald** — no slop detected; the candidate passed the wards
+- **Emerald** — scanned, no slop detected; the candidate passed the wards
 - **Amber** — warnings present; acceptance allowed, writer's judgement
 - **Danger** — blocking ward; the Accept control is disabled until resolved
+- **Neutral grey** — wards were not run for this candidate (the writer opted out)
+
+The grey state matters as much as the others: an unscanned candidate must never wear the emerald "clean" pill, because that asserts a check that never happened. Grey with a struck-through shield says *unknown*, not *safe*.
 
 A blocked candidate must *look* blocked. Disabled Accept plus a danger pill plus the listed hits — three signals, not one.
 

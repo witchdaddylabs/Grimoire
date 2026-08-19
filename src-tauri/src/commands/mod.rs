@@ -13,7 +13,10 @@ use crate::errors::CommandResult;
 use crate::helpers::timestamp;
 use crate::models::*;
 use rusqlite::{params, Connection};
-use std::{env, fs, path::{Path, PathBuf}};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DATABASE_FILE: &str = "grimoire.sqlite";
@@ -96,8 +99,7 @@ pub fn read_metadata(project_dir: &Path) -> CommandResult<ProjectMetadata> {
             metadata_path.display()
         )
     })?;
-    serde_json::from_str(&raw)
-        .map_err(|error| format!("Could not parse project metadata: {error}"))
+    serde_json::from_str(&raw).map_err(|error| format!("Could not parse project metadata: {error}"))
 }
 
 pub fn write_metadata(metadata: &ProjectMetadata) -> CommandResult<()> {
@@ -109,7 +111,10 @@ pub fn write_metadata(metadata: &ProjectMetadata) -> CommandResult<()> {
         .map_err(|error| format!("Could not write project metadata: {error}"))
 }
 
-pub fn initialise_database(metadata: &ProjectMetadata, seed_demo: bool) -> CommandResult<ProjectMetadata> {
+pub fn initialise_database(
+    metadata: &ProjectMetadata,
+    seed_demo: bool,
+) -> CommandResult<ProjectMetadata> {
     let mut connection = Connection::open(&metadata.database_path)
         .map_err(|error| format!("Could not open SQLite database: {error}"))?;
     connection
