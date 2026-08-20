@@ -703,6 +703,10 @@ select:focus-visible,
   color: var(--accent-bronze-bright);
 }
 
+.tool-section.open {
+  border-color: var(--border-strong);
+}
+
 .tool-section-toggle {
   width: 100%;
   border: 0;
